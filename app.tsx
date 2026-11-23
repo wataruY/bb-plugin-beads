@@ -9,9 +9,11 @@ import {
   experimental_InfoSection as InfoSection,
   experimental_useRpcMutation,
   experimental_useRpcQuery,
+  experimental_useCodeTheme,
   experimental_useTabVisible,
   experimental_VoiceInputTextarea as VoiceInputTextarea,
   Markdown,
+  type PluginCodeThemeData,
   useSettings,
 } from "@get-bb/plugin-sdk/app";
 import {
@@ -1232,6 +1234,171 @@ function readBase64(file: Blob): Promise<string> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Markdown highlighting while typing: a mirror of the field's text, painted
+// over the transparent textarea text. Tokens change color and nothing else,
+// so every glyph keeps the width the caret and selection expect.
+
+type MdTokenKind =
+  | "plain"
+  | "heading"
+  | "listMarker"
+  | "checkbox"
+  | "quote"
+  | "fence"
+  | "code"
+  | "emphasisMarker"
+  | "link"
+  | "image";
+type MdToken = { text: string; kind: MdTokenKind };
+
+// A backtick fence's info string cannot contain a backtick, so "```x```" stays inline code.
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+const HEADING = /^ {0,3}#{1,6}(?:\s|$)/;
+const QUOTE = /^ {0,3}>/;
+const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(\[[ xX]\](?=\s|$))?/;
+// Groups: 1 code span run, 2-3 `*`/`**`/`~~` marker and body, 4-5 `_`/`__`
+// marker and body. Markers must pair on the line and hug their text, and `_`
+// must not touch a letter or digit outside, so `snake_case` and `2 * 3` stay plain.
+const INLINE =
+  /(`+).+?\1(?!`)|!?\[[^\]\n]*\]\((?:<[^>\n]+>|[^)\s]+)\)|<https?:\/\/[^>\s]+>|(\*\*|\*|~~)(?=\S)(.*?\S)\2|(?<![\p{L}\p{N}])(__?)(?=\S)(.*?\S)\4(?![\p{L}\p{N}])/gu;
+
+function pushToken(tokens: MdToken[], text: string, kind: MdTokenKind): void {
+  if (text === "") return;
+  const last = tokens.at(-1);
+  if (last?.kind === kind) last.text += text;
+  else tokens.push({ text, kind });
+}
+
+function tokenizeInline(tokens: MdToken[], text: string): void {
+  let at = 0;
+  for (const match of text.matchAll(INLINE)) {
+    pushToken(tokens, text.slice(at, match.index), "plain");
+    const marker = match[2] ?? match[4];
+    if (marker === undefined) {
+      const lead = match[0][0];
+      pushToken(tokens, match[0], lead === "`" ? "code" : lead === "!" ? "image" : "link");
+    } else {
+      pushToken(tokens, marker, "emphasisMarker");
+      tokenizeInline(tokens, match[3] ?? match[5] ?? "");
+      pushToken(tokens, marker, "emphasisMarker");
+    }
+    at = match.index + match[0].length;
+  }
+  pushToken(tokens, text.slice(at), "plain");
+}
+
+// Line-based; only an open code fence carries over to the next line. The
+// token texts always join back to exactly `text`.
+function tokenizeMarkdown(text: string): MdToken[] {
+  const tokens: MdToken[] = [];
+  let fence: string | null = null;
+  text.split("\n").forEach((line, i) => {
+    if (i > 0) pushToken(tokens, "\n", "plain");
+    const run = FENCE.exec(line)?.[1];
+    if (fence !== null) {
+      const closes =
+        run !== undefined && run[0] === fence[0] && run.length >= fence.length && line.trim() === run;
+      if (closes) fence = null;
+      pushToken(tokens, line, closes ? "fence" : "code");
+    } else if (run !== undefined) {
+      fence = run;
+      pushToken(tokens, line, "fence");
+    } else if (HEADING.test(line)) {
+      pushToken(tokens, line, "heading");
+    } else if (QUOTE.test(line)) {
+      pushToken(tokens, line, "quote");
+    } else {
+      const item = LIST_ITEM.exec(line);
+      if (item !== null) {
+        pushToken(tokens, item[1], "plain");
+        pushToken(tokens, item[2], "listMarker");
+        pushToken(tokens, item[3], "plain");
+        pushToken(tokens, item[4] ?? "", "checkbox");
+      }
+      tokenizeInline(tokens, line.slice(item?.[0].length ?? 0));
+    }
+  });
+  return tokens;
+}
+
+// Each kind's TextMate scopes as the Markdown grammar assigns them, innermost
+// first, and the CSS color used when the code theme has no rule for any.
+// Task checkboxes have no grammar scope; they borrow the constant color.
+const MD_TOKEN_STYLE: Record<Exclude<MdTokenKind, "plain">, { scopes: string[]; fallback: string }> = {
+  heading: {
+    scopes: ["entity.name.section.markdown", "markup.heading.markdown"],
+    fallback: "var(--timeline-accent, var(--foreground))",
+  },
+  listMarker: {
+    scopes: ["punctuation.definition.list.begin.markdown", "markup.list.markdown"],
+    fallback: "var(--subtle-foreground)",
+  },
+  checkbox: {
+    scopes: ["constant.language.markdown", "punctuation.definition.list.begin.markdown"],
+    fallback: "var(--timeline-accent, var(--foreground))",
+  },
+  quote: {
+    scopes: ["markup.quote.markdown"],
+    fallback: "var(--subtle-foreground)",
+  },
+  fence: {
+    scopes: ["punctuation.definition.markdown", "markup.fenced_code.block.markdown"],
+    fallback: "var(--subtle-foreground)",
+  },
+  code: {
+    scopes: ["markup.inline.raw.string.markdown", "markup.raw.block.markdown", "markup.fenced_code.block.markdown"],
+    fallback: "var(--success, var(--foreground))",
+  },
+  emphasisMarker: {
+    scopes: [
+      "punctuation.definition.bold.markdown",
+      "punctuation.definition.italic.markdown",
+      "punctuation.definition.strikethrough.markdown",
+    ],
+    fallback: "var(--subtle-foreground)",
+  },
+  link: {
+    scopes: ["markup.underline.link.markdown", "string.other.link.title.markdown"],
+    fallback: "var(--file-accent, var(--timeline-accent, var(--foreground)))",
+  },
+  image: {
+    scopes: ["markup.underline.link.image.markdown", "string.other.link.description.markdown"],
+    fallback: "var(--pr-merged, var(--foreground))",
+  },
+};
+
+// The foreground of the theme rule that best matches the first scope any
+// rule matches: rule `a.b` matches scope `a.b.c`, and the longest rule wins.
+// Descendant selectors ("a b") never match a single scope, so they drop out.
+function themeForeground(theme: PluginCodeThemeData, scopes: readonly string[]): string | undefined {
+  for (const scope of scopes) {
+    let best: { length: number; color: string } | undefined;
+    for (const rule of theme.tokenColors) {
+      const color = rule.settings.foreground;
+      if (color === undefined || rule.scope === undefined) continue;
+      const selectors = typeof rule.scope === "string" ? rule.scope.split(",") : rule.scope;
+      for (const raw of selectors) {
+        const selector = raw.trim();
+        const matches = scope === selector || scope.startsWith(selector + ".");
+        if (matches && selector.length >= (best?.length ?? 0)) best = { length: selector.length, color };
+      }
+    }
+    if (best !== undefined) return best.color;
+  }
+  return undefined;
+}
+
+// Plain text keeps the field's own color.
+function markdownColors(theme: PluginCodeThemeData | null): Partial<Record<MdTokenKind, string>> {
+  const colors: Partial<Record<MdTokenKind, string>> = {};
+  for (const kind of Object.keys(MD_TOKEN_STYLE) as (keyof typeof MD_TOKEN_STYLE)[]) {
+    const { scopes, fallback } = MD_TOKEN_STYLE[kind];
+    colors[kind] = (theme === null ? undefined : themeForeground(theme, scopes)) ?? fallback;
+  }
+  return colors;
+}
+
 function AttachmentTextarea({
   threadId,
   checkout,
@@ -1260,6 +1427,12 @@ function AttachmentTextarea({
   const document = useMarkdownDocument(threadId, checkout);
   const paths = trigger === null ? [] : (found.data?.paths ?? []);
   const images = useMemo(() => (value.match(IMAGE_LINK) ?? []).join("\n\n"), [value]);
+  const tokens = useMemo(() => tokenizeMarkdown(value), [value]);
+  const { theme } = experimental_useCodeTheme();
+  const colors = useMemo(() => markdownColors(theme), [theme]);
+  // An IME's uncommitted text may not reach `value` yet, so the textarea shows
+  // its own text while composing and the mirror steps aside.
+  const [composing, setComposing] = useState(false);
 
   // Replace [from, to) with `text` and put the caret after it.
   const splice = (from: number, to: number, text: string): void => {
@@ -1303,41 +1476,69 @@ function AttachmentTextarea({
 
   return (
     <div className="relative space-y-1.5">
-      <VoiceInputTextarea
-        {...rest}
-        ref={ref}
-        value={value}
-        onValueChange={(next) => {
-          onValueChange(next);
-          setActive(0);
-          setTrigger(atTrigger(next, ref.current?.selectionStart ?? next.length));
-        }}
-        onPaste={(event) => {
-          const image = Array.from(event.clipboardData.files).find((f) => f.type.startsWith("image/"));
-          if (image === undefined) return;
-          event.preventDefault();
-          void pasteImage(image, ref.current?.selectionStart ?? value.length);
-        }}
-        onKeyDown={(event) => {
-          rest.onKeyDown?.(event);
-          if (trigger === null || paths.length === 0) return;
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      <div className="relative">
+        <VoiceInputTextarea
+          {...rest}
+          ref={ref}
+          style={composing ? rest.style : { ...rest.style, color: "transparent", caretColor: "var(--foreground)" }}
+          onCompositionStart={(event) => {
+            rest.onCompositionStart?.(event);
+            setComposing(true);
+          }}
+          onCompositionEnd={(event) => {
+            rest.onCompositionEnd?.(event);
+            setComposing(false);
+          }}
+          value={value}
+          onValueChange={(next) => {
+            onValueChange(next);
+            setActive(0);
+            setTrigger(atTrigger(next, ref.current?.selectionStart ?? next.length));
+          }}
+          onPaste={(event) => {
+            const image = Array.from(event.clipboardData.files).find((f) => f.type.startsWith("image/"));
+            if (image === undefined) return;
             event.preventDefault();
-            setActive((i) => (i + (event.key === "ArrowDown" ? 1 : paths.length - 1)) % paths.length);
-          } else if (event.key === "Enter" || event.key === "Tab") {
-            event.preventDefault();
-            pick(paths[Math.min(active, paths.length - 1)]);
-          } else if (event.key === "Escape") {
-            // Close the picker without also discarding the form.
-            event.preventDefault();
+            void pasteImage(image, ref.current?.selectionStart ?? value.length);
+          }}
+          onKeyDown={(event) => {
+            rest.onKeyDown?.(event);
+            if (trigger === null || paths.length === 0) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((i) => (i + (event.key === "ArrowDown" ? 1 : paths.length - 1)) % paths.length);
+            } else if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              pick(paths[Math.min(active, paths.length - 1)]);
+            } else if (event.key === "Escape") {
+              // Close the picker without also discarding the form.
+              event.preventDefault();
+              setTrigger(null);
+            }
+          }}
+          onBlur={(event) => {
+            rest.onBlur?.(event);
             setTrigger(null);
-          }
-        }}
-        onBlur={(event) => {
-          rest.onBlur?.(event);
-          setTrigger(null);
-        }}
-      />
+            // Blurring mid-composition does not always fire compositionend.
+            setComposing(false);
+          }}
+        />
+        {!composing && (
+          <div
+            aria-hidden
+            // The field's own classes give the same box, font and padding; the
+            // wrapping rules are a textarea default a div lacks.
+            className={(rest.className ?? "") + " pointer-events-none absolute inset-0 overflow-hidden"}
+            style={{ borderColor: "transparent", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
+          >
+            {tokens.map((token, i) => (
+              <span key={i} style={{ color: colors[token.kind] }}>
+                {token.text}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
       {uploads > 0 && <p className="text-xs text-subtle-foreground">Saving image…</p>}
       {paths.length > 0 && (
         <ul
