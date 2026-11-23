@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   hostContract,
   hostSignals,
+  ATTACHMENT_DIR,
   PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
@@ -431,6 +432,33 @@ and install beads from https://beads.gascity.com if needed.`,
         .map((row) => toIssueNode(row))
         .filter((node): node is BdIssueNode => node !== null);
       return { initialized: true, issues, error: null, checkout };
+    },
+    files_search: async ({ threadId, query }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) return { paths: [] };
+      try {
+        return await host.call(
+          "fs_search",
+          { cwd: env.cwd, query, limit: 8 },
+          { hostId: env.hostId, signal: ctx.experimental_signal, timeoutMs: 15_000 },
+        );
+      } catch {
+        return { paths: [] };
+      }
+    },
+    attachment_save: async ({ threadId, name, dataBase64 }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) return { path: null, error: noEnvError };
+      try {
+        const saved = await host.call(
+          "fs_save",
+          { cwd: env.cwd, dir: ATTACHMENT_DIR, name, dataBase64 },
+          { hostId: env.hostId, signal: ctx.experimental_signal, timeoutMs: 30_000 },
+        );
+        return { path: saved.path, error: null };
+      } catch (error) {
+        return { path: null, error: error instanceof Error ? error.message : String(error) };
+      }
     },
     issue_show: async ({ threadId, id }, ctx) => {
       const env = await resolveThreadEnv(threadId);

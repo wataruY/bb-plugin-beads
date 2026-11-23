@@ -2,7 +2,33 @@ import { defineRpcContract, type ExperimentalHostSignals } from "@get-bb/plugin-
 import { z } from "zod";
 
 // The server entry and the bb.host entry share this contract.
+// Pasted images travel as base64 through two RPC hops; cap them at ~8 MB.
+export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_ATTACHMENT_BASE64 = Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 4;
+// Where pasted images land, relative to the checkout root.
+export const ATTACHMENT_DIR = "assets";
+
 export const hostContract = defineRpcContract({
+  // Project-relative paths matching `query`, for `@` completion. Respects
+  // .gitignore when the checkout is a git repository.
+  fs_search: {
+    input: z
+      .object({ cwd: z.string().min(1), query: z.string().max(200), limit: z.number().int().min(1).max(50) })
+      .strict(),
+    output: z.object({ paths: z.array(z.string()) }).strict(),
+  },
+  // Writes one new file under `dir` (relative to `cwd`); never overwrites.
+  fs_save: {
+    input: z
+      .object({
+        cwd: z.string().min(1),
+        dir: z.string().min(1),
+        name: z.string().min(1).max(120),
+        dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64),
+      })
+      .strict(),
+    output: z.object({ path: z.string() }).strict(),
+  },
   bd_check: {
     input: z.object({ bdPath: z.string().min(1) }).strict(),
     output: z
@@ -97,6 +123,22 @@ const issueDraft = z
 export type IssueDraft = z.infer<typeof issueDraft>;
 
 export const rpcContract = defineRpcContract({
+  files_search: {
+    input: z
+      .object({ threadId: z.string().min(1), query: z.string().max(200) })
+      .strict(),
+    output: z.object({ paths: z.array(z.string()) }).strict(),
+  },
+  attachment_save: {
+    input: z
+      .object({
+        threadId: z.string().min(1),
+        name: z.string().min(1).max(120),
+        dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64),
+      })
+      .strict(),
+    output: z.object({ path: z.string().nullable(), error: z.string().nullable() }).strict(),
+  },
   issues_tree: {
     input: z.object({ threadId: z.string().min(1) }).strict(),
     output: z

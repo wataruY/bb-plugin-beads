@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
+  MAX_ATTACHMENT_BYTES,
   PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
@@ -558,6 +559,24 @@ function useIssueShow(threadId: string, id: string) {
   return { show, query };
 }
 
+function useMarkdownDocument(threadId: string, checkout: IssuesCheckout | null) {
+  return useMemo(
+    () =>
+      checkout === null
+        ? undefined
+        : {
+            threadId,
+            rootPath: checkout.rootPath,
+            target: {
+              kind: "workspace" as const,
+              environmentId: checkout.environmentId,
+              path: "ISSUE.md",
+            },
+          },
+    [threadId, checkout?.environmentId, checkout?.rootPath],
+  );
+}
+
 // Prose fields render images as thumbnails rather than at full size.
 const PROSE_CLASS =
   "text-[13px] leading-relaxed [&_img]:max-h-40 [&_img]:max-w-full [&_img]:rounded";
@@ -581,21 +600,7 @@ function IssueDetail({
   const [copied, setCopied] = useState(false);
   // A virtual document at the checkout root, so bb resolves relative image
   // sources and file links (`assets/x.png`, `docs/spec.md`) against the project.
-  const markdownDocument = useMemo(
-    () =>
-      checkout === null
-        ? undefined
-        : {
-            threadId,
-            rootPath: checkout.rootPath,
-            target: {
-              kind: "workspace" as const,
-              environmentId: checkout.environmentId,
-              path: "ISSUE.md",
-            },
-          },
-    [threadId, checkout?.environmentId, checkout?.rootPath],
-  );
+  const markdownDocument = useMarkdownDocument(threadId, checkout);
 
   const status = effectiveStatus(issue, index);
   const parent = issue.parent !== null ? index.byId.get(issue.parent) : undefined;
@@ -1196,8 +1201,180 @@ function LabelsField({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Attachments: `@` completes project files into Markdown links, and pasting an
+// image saves it under the checkout's assets/ folder and links it. Images preview under the
+// field through the same Markdown renderer the detail pane uses.
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
+const IMAGE_LINK = /!\[[^\]]*\]\((?:<[^>\n]+>|[^)\s]+)\)/g;
+
+// Angle brackets keep paths with spaces or parentheses a valid link target.
+function markdownLink(file: string): string {
+  const name = file.slice(file.lastIndexOf("/") + 1);
+  const target = /[\s()]/.test(file) ? `<${file}>` : file;
+  return `${IMAGE_EXT.test(file) ? "!" : ""}[${name}](${target})`;
+}
+
+// The `@query` word ending at the caret, if any. `@` must start a word so an
+// email address does not open the picker.
+function atTrigger(text: string, caret: number): { start: number; query: string } | null {
+  const match = /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret));
+  return match === null ? null : { start: caret - match[2].length - 1, query: match[2] };
+}
+
+function readBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read the image."));
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.readAsDataURL(file);
+  });
+}
+
+function AttachmentTextarea({
+  threadId,
+  checkout,
+  value,
+  onValueChange,
+  onAttachError,
+  ...rest
+}: {
+  threadId: string;
+  checkout: IssuesCheckout | null;
+  value: string;
+  onValueChange: (value: string) => void;
+  onAttachError: (message: string) => void;
+} & Omit<React.ComponentProps<typeof VoiceInputTextarea>, "value" | "onValueChange">) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [trigger, setTrigger] = useState<{ start: number; query: string } | null>(null);
+  const [active, setActive] = useState(0);
+  const [uploads, setUploads] = useState(0);
+  const save = experimental_useRpcMutation({ contract: rpcContract, method: "attachment_save" });
+  const found = experimental_useRpcQuery({
+    contract: rpcContract,
+    method: "files_search",
+    input: { threadId, query: trigger?.query ?? "" },
+    enabled: trigger !== null,
+  });
+  const document = useMarkdownDocument(threadId, checkout);
+  const paths = trigger === null ? [] : (found.data?.paths ?? []);
+  const images = useMemo(() => (value.match(IMAGE_LINK) ?? []).join("\n\n"), [value]);
+
+  // Replace [from, to) with `text` and put the caret after it.
+  const splice = (from: number, to: number, text: string): void => {
+    const el = ref.current;
+    const current = el?.value ?? value;
+    onValueChange(current.slice(0, from) + text + current.slice(to));
+    setTrigger(null);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(from + text.length, from + text.length);
+    });
+  };
+
+  const pick = (file: string): void => {
+    if (trigger === null) return;
+    const caret = ref.current?.selectionStart ?? trigger.start + trigger.query.length + 1;
+    splice(trigger.start, caret, markdownLink(file) + " ");
+  };
+
+  const pasteImage = async (file: File, at: number): Promise<void> => {
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      onAttachError(`Image is larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`);
+      return;
+    }
+    setUploads((n) => n + 1);
+    try {
+      const ext = file.type.split("/")[1]?.replace("jpeg", "jpg").replace(/\+.*/, "") || "png";
+      const name = file.name && file.name !== "image.png" ? file.name : `pasted-${Date.now()}.${ext}`;
+      const result = await save.mutate({ threadId, name, dataBase64: await readBase64(file) });
+      if (result.path === null) {
+        onAttachError(result.error ?? "Could not save the image.");
+        return;
+      }
+      splice(at, at, markdownLink(result.path) + "\n");
+    } catch (caught) {
+      onAttachError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setUploads((n) => n - 1);
+    }
+  };
+
+  return (
+    <div className="relative space-y-1.5">
+      <VoiceInputTextarea
+        {...rest}
+        ref={ref}
+        value={value}
+        onValueChange={(next) => {
+          onValueChange(next);
+          setActive(0);
+          setTrigger(atTrigger(next, ref.current?.selectionStart ?? next.length));
+        }}
+        onPaste={(event) => {
+          const image = Array.from(event.clipboardData.files).find((f) => f.type.startsWith("image/"));
+          if (image === undefined) return;
+          event.preventDefault();
+          void pasteImage(image, ref.current?.selectionStart ?? value.length);
+        }}
+        onKeyDown={(event) => {
+          rest.onKeyDown?.(event);
+          if (trigger === null || paths.length === 0) return;
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive((i) => (i + (event.key === "ArrowDown" ? 1 : paths.length - 1)) % paths.length);
+          } else if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            pick(paths[Math.min(active, paths.length - 1)]);
+          } else if (event.key === "Escape") {
+            // Close the picker without also discarding the form.
+            event.preventDefault();
+            setTrigger(null);
+          }
+        }}
+        onBlur={(event) => {
+          rest.onBlur?.(event);
+          setTrigger(null);
+        }}
+      />
+      {uploads > 0 && <p className="text-xs text-subtle-foreground">Saving image…</p>}
+      {paths.length > 0 && (
+        <ul
+          role="listbox"
+          aria-label="Project files"
+          className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md"
+        >
+          {paths.map((file, i) => (
+            <li
+              key={file}
+              role="option"
+              aria-selected={i === active}
+              // mousedown, not click: the textarea would blur and close the list first.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                pick(file);
+              }}
+              onMouseEnter={() => setActive(i)}
+              className={
+                "flex cursor-pointer items-baseline gap-2 rounded px-2 py-1 pointer-coarse:min-h-11 pointer-coarse:items-center " +
+                (i === active ? "bg-surface-recessed" : "")
+              }
+            >
+              <span className="shrink-0 text-xs text-foreground">{file.slice(file.lastIndexOf("/") + 1)}</span>
+              <span className="min-w-0 truncate font-mono text-[11px] text-subtle-foreground">{file}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {images !== "" && <Markdown content={images} className={PROSE_CLASS} experimental_document={document} />}
+    </div>
+  );
+}
+
 function IssueForm({
   threadId,
+  checkout,
   index,
   target,
   initial,
@@ -1206,6 +1383,7 @@ function IssueForm({
   onCancel,
 }: {
   threadId: string;
+  checkout: IssuesCheckout | null;
   index: IssueIndex;
   target: FormTarget;
   initial: IssueDraft;
@@ -1340,7 +1518,10 @@ function IssueForm({
               value={draft.title}
               onChange={(event) => set("title", event.target.value)}
             />
-            <VoiceInputTextarea
+            <AttachmentTextarea
+              threadId={threadId}
+              checkout={checkout}
+              onAttachError={setError}
               aria-label="Description"
               className={FIELD_CLASS + " min-h-[6.5rem]"}
               placeholder="Add a description. Markdown works."
@@ -1468,7 +1649,10 @@ function IssueForm({
           {showMore ? (
             <>
               <InfoSection label="Acceptance">
-                <VoiceInputTextarea
+                <AttachmentTextarea
+              threadId={threadId}
+              checkout={checkout}
+              onAttachError={setError}
                   // Revealed on request: move straight into the first field.
                   autoFocus={!hasMore}
                   aria-label="Acceptance criteria"
@@ -1480,7 +1664,10 @@ function IssueForm({
                 />
               </InfoSection>
               <InfoSection label="Design">
-                <VoiceInputTextarea
+                <AttachmentTextarea
+              threadId={threadId}
+              checkout={checkout}
+              onAttachError={setError}
                   aria-label="Design"
                   className={FIELD_CLASS + " min-h-[4.5rem]"}
                   placeholder="Decisions and approach"
@@ -1490,7 +1677,10 @@ function IssueForm({
                 />
               </InfoSection>
               <InfoSection label="Notes">
-                <VoiceInputTextarea
+                <AttachmentTextarea
+              threadId={threadId}
+              checkout={checkout}
+              onAttachError={setError}
                   aria-label="Notes"
                   className={FIELD_CLASS + " min-h-[4.5rem]"}
                   placeholder="Context for whoever picks this up"
@@ -1514,12 +1704,14 @@ function IssueForm({
 
 function EditIssueForm({
   threadId,
+  checkout,
   issue,
   index,
   onDone,
   onCancel,
 }: {
   threadId: string;
+  checkout: IssuesCheckout | null;
   issue: BdIssueNode;
   index: IssueIndex;
   onDone: (id: string) => void;
@@ -1555,6 +1747,7 @@ function EditIssueForm({
   return (
     <IssueForm
       threadId={threadId}
+      checkout={checkout}
       index={index}
       target={{ kind: "edit", id: issue.id }}
       initial={start.draft}
@@ -1709,6 +1902,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       <IssueForm
         key={`create:${form.parent ?? ""}`}
         threadId={threadId}
+        checkout={query.data?.checkout ?? null}
         index={index}
         target={form}
         initial={emptyDraft(form.parent !== null ? index.byId.get(form.parent) : undefined)}
@@ -1720,6 +1914,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       <EditIssueForm
         key={`edit:${form.id}`}
         threadId={threadId}
+        checkout={query.data?.checkout ?? null}
         issue={editing!}
         index={index}
         onDone={close}

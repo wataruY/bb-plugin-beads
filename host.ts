@@ -3,6 +3,8 @@
 // shared contract in contract.ts.
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { spawn } from "node:child_process";
+import { mkdir, open, readdir } from "node:fs/promises";
+import path from "node:path";
 import { hostContract, hostSignals } from "./contract.js";
 
 const MAX_CAPTURE = 2 * 1024 * 1024;
@@ -84,6 +86,87 @@ function runCommand(
   return promise;
 }
 
+const SKIP_DIRS = new Set([".git", "node_modules", ".beads", ".dolt", ".next", "dist", "target"]);
+const FILE_LIST_MAX = 20_000;
+const FILE_LIST_TTL_MS = 3_000;
+const fileLists = new Map<string, { at: number; files: string[] }>();
+
+async function walk(root: string, dir: string, out: string[]): Promise<void> {
+  if (out.length >= FILE_LIST_MAX) return;
+  let entries;
+  try {
+    entries = await readdir(path.join(root, dir), { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (out.length >= FILE_LIST_MAX) return;
+    const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) await walk(root, rel, out);
+    } else if (entry.isFile()) {
+      out.push(rel);
+    }
+  }
+}
+
+// Tracked + untracked-but-not-ignored files via git; a plain walk otherwise.
+async function listFiles(cwd: string, signal: AbortSignal): Promise<string[]> {
+  const cached = fileLists.get(cwd);
+  if (cached !== undefined && Date.now() - cached.at < FILE_LIST_TTL_MS) return cached.files;
+  let files: string[] = [];
+  try {
+    const result = await runCommand(
+      "git",
+      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+      cwd,
+      10_000,
+      signal,
+    );
+    if (result.exitCode === 0) files = result.stdout.split("\0").filter((f) => f !== "");
+    else await walk(cwd, "", files);
+  } catch {
+    await walk(cwd, "", files);
+  }
+  fileLists.set(cwd, { at: Date.now(), files });
+  return files;
+}
+
+function rank(file: string, query: string): number {
+  const lower = file.toLowerCase();
+  const base = lower.slice(lower.lastIndexOf("/") + 1);
+  if (query === "") return 3;
+  if (base.startsWith(query)) return 0;
+  if (base.includes(query)) return 1;
+  return lower.includes(query) ? 2 : -1;
+}
+
+// `dir` is trusted config but `name` is user-derived: keep the write inside it.
+async function saveUnique(cwd: string, dir: string, name: string, data: Buffer): Promise<string> {
+  const root = path.resolve(cwd);
+  const target = path.resolve(root, dir);
+  if (target !== root && !target.startsWith(root + path.sep)) throw new Error("directory escapes the checkout");
+  await mkdir(target, { recursive: true });
+  const base = path.basename(name).replace(/[^\w.\- ]+/g, "_") || "image";
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length) || "image";
+  for (let n = 0; n < 1000; n++) {
+    const candidate = n === 0 ? `${stem}${ext}` : `${stem}-${n}${ext}`;
+    try {
+      const handle = await open(path.join(target, candidate), "wx");
+      try {
+        await handle.writeFile(data);
+      } finally {
+        await handle.close();
+      }
+      return path.posix.join(dir.split(path.sep).join("/"), candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error("could not find a free file name");
+}
+
 export default experimental_defineHostEntry({
   contract: hostContract,
   experimental_signals: hostSignals,
@@ -106,6 +189,22 @@ export default experimental_defineHostEntry({
           error: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+    fs_search: async ({ cwd, query, limit }, context) => {
+      const q = query.toLowerCase();
+      const files = await listFiles(cwd, context.signal);
+      const ranked: { file: string; score: number }[] = [];
+      for (const file of files) {
+        const score = rank(file, q);
+        if (score >= 0) ranked.push({ file, score });
+      }
+      ranked.sort((a, b) => a.score - b.score || a.file.length - b.file.length || (a.file < b.file ? -1 : 1));
+      return { paths: ranked.slice(0, limit).map((r) => r.file) };
+    },
+    fs_save: async ({ cwd, dir, name, dataBase64 }) => {
+      const written = await saveUnique(cwd, dir, name, Buffer.from(dataBase64, "base64"));
+      fileLists.delete(cwd);
+      return { path: written };
     },
     bd_run: async ({ args, cwd, bdPath, timeoutMs }, context) => {
       const result = await runCommand(bdPath, args, cwd, timeoutMs, context.signal);
