@@ -9,10 +9,15 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 - **`beads` agent tool** (`server.ts`) — runs any `bd` command in the
   thread's environment checkout through the plugin's full-trust `bb.host`
   worker.
-- **Beads issues side panel** (`app.tsx`) — thread side-panel tab with a
-  draggable horizontal split: issue tree on top (status dots, P0–P4 badges,
-  labels, due/estimate markers, blocked-by markers), detail pane below
-  (description, acceptance, design, notes, dependencies).
+- **Beads issues side panel** (`app.tsx`) — thread side-panel tab. The
+  `layout` setting picks `split` (default: issue tree over a draggable detail
+  pane), `grouped` (issues grouped by In progress / Blocked / Ready / ... over
+  the detail pane) or `drill` (full-height tree; the detail opens full height
+  with a back link). Status glyphs and priority use bb theme variables
+  (`var(--timeline-accent)` etc.), not Tailwind palette classes. The detail
+  pane uses bb's host components (`experimental_DetailRow`,
+  `experimental_InfoSection`, `experimental_InfoList`); sub-issues, Blocked by
+  and Blocks come from the `issues_tree` data, prose fields from `bd show`.
 - **`bb beads` CLI** (`server.ts`) — `bb beads -- <bd-args...>` passthrough
   (arguments go to `bd` verbatim) and `bb beads check`.
 - **`beads` skill** (`skills/beads/SKILL.md`) — standing instructions for
@@ -61,7 +66,12 @@ bb plugin rpc call beads issues_tree --input-file /tmp/rpc-in.json
   `due_at`, `estimated_minutes`, `acceptance_criteria`, ...); the tree node
   contract maps it to camelCase. Dependency entries differ between commands:
   `bd list` uses `issue_id`/`depends_on_id`/`type`, `bd show` uses
-  `id`/`title`/`status`/`dependency_type`.
+  `id`/`title`/`status`/`dependency_type`. The tree node's `blockedBy` keeps
+  only `type: "blocks"` targets; an issue counts as blocked while one of them
+  is not closed.
+- `experimental_DetailRow` icons resolve by name; lucide components must be
+  registered via `app.experimental_icons.register` wrapped in a plain function
+  (forwardRef objects are rejected and the whole app registration fails).
 - `bd delete` only prints a preview without `--force`; set an issue's status
   with `bd update <id> --status <s>` (there is no `bd status <id> <s>`).
 - The side panel is **read-only**; mutations go through the agent tool or

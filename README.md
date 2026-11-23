@@ -12,6 +12,8 @@ tracker for AI coding agents (`bd` CLI) — into BB threads.
 - **Beads issues side panel** — a thread side-panel tab showing the issue
   tree of the thread's checkout (status, priority, type, description,
   dependencies). Refreshes automatically after mutating `bd` commands.
+  Choose its layout with `bb plugin config beads set layout <split|grouped|drill>`
+  (default `split`).
 - **`bb beads` CLI** — `bb beads -- <bd-args...>` passthrough and
   `bb beads check` to verify the `bd` binary is reachable.
 - **`beads` skill** — standing instructions injected into agent threads.

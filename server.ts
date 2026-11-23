@@ -8,7 +8,13 @@
 //  3. skills/beads/SKILL.md: standing instructions for agents.
 import { PLUGIN_CLI_OUTPUT_MAX_BYTES, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { hostContract, hostSignals, rpcContract, type BdIssueNode } from "./contract.js";
+import {
+  hostContract,
+  hostSignals,
+  PANEL_LAYOUTS,
+  rpcContract,
+  type BdIssueNode,
+} from "./contract.js";
 
 const BD_TIMEOUT_MS = 5 * 60_000;
 const TOOL_OUTPUT_MAX = 20_000;
@@ -32,6 +38,18 @@ export default async function plugin(bb: BbPluginApi) {
       type: "string",
       label: "Path to the `bd` beads CLI",
       default: "bd",
+    },
+    layout: {
+      type: "select",
+      label: "Issues panel layout",
+      description: "How the Beads issues side panel arranges the issue list and the issue detail.",
+      options: [...PANEL_LAYOUTS],
+      experimental_optionLabels: {
+        split: "Tree + detail (split)",
+        grouped: "Grouped by state + detail (split)",
+        drill: "Tree, detail opens full height",
+      },
+      default: "split",
     },
   });
   const { bdPath } = await settings.get();
@@ -215,12 +233,9 @@ and install beads from https://beads.gascity.com if needed.`,
   ]);
 
   // Parse one `bd list --json` row into the slim node the frontend tree
-  // consumes, plus the issue's non-hierarchy dependency targets (used to
-  // compute hasBlockingDeps). Beads output is freeform at this boundary;
-  // keep only the fields the tree needs and drop rows that are not issues.
-  type IssueDraft = { node: BdIssueNode; depTargets: string[] };
-
-  function toIssueDraft(row: unknown): IssueDraft | null {
+  // consumes. Beads output is freeform at this boundary; keep only the fields
+  // the tree needs and drop rows that are not issues.
+  function toIssueNode(row: unknown): BdIssueNode | null {
     if (typeof row !== "object" || row === null) return null;
     const r = row as Record<string, unknown>;
     if (typeof r.id !== "string" || r.id === "" || typeof r.title !== "string") {
@@ -235,36 +250,32 @@ and install beads from https://beads.gascity.com if needed.`,
     const labels = Array.isArray(r.labels)
       ? r.labels.filter((label): label is string => typeof label === "string")
       : [];
-    // Non-hierarchy dependencies (blocks/blocked-by/...); parent-child links
-    // are already represented by `parent` and are excluded here.
-    const depTargets: string[] = [];
+    const blockedBy: string[] = [];
     if (Array.isArray(r.dependencies)) {
       for (const dep of r.dependencies) {
         if (typeof dep !== "object" || dep === null) continue;
         const d = dep as Record<string, unknown>;
-        if (d.type === "parent-child") continue;
-        if (typeof d.depends_on_id === "string") depTargets.push(d.depends_on_id);
+        if (d.type === "blocks" && typeof d.depends_on_id === "string") {
+          blockedBy.push(d.depends_on_id);
+        }
       }
     }
     return {
-      node: {
-        id: r.id,
-        title: r.title,
-        status: typeof r.status === "string" ? r.status : "open",
-        priority: num(r.priority, 2),
-        type: typeof r.issue_type === "string" ? r.issue_type : "task",
-        parent: str(r.parent),
-        owner: str(r.owner),
-        updatedAt: str(r.updated_at),
-        labels,
-        dueAt: str(r.due_at),
-        estimatedMinutes: numOrNull(r.estimated_minutes),
-        hasBlockingDeps: false,
-        commentCount: num(r.comment_count, 0),
-        dependencyCount: num(r.dependency_count, 0),
-        dependentCount: num(r.dependent_count, 0),
-      },
-      depTargets,
+      id: r.id,
+      title: r.title,
+      status: typeof r.status === "string" ? r.status : "open",
+      priority: num(r.priority, 2),
+      type: typeof r.issue_type === "string" ? r.issue_type : "task",
+      parent: str(r.parent),
+      owner: str(r.owner),
+      updatedAt: str(r.updated_at),
+      labels,
+      dueAt: str(r.due_at),
+      estimatedMinutes: numOrNull(r.estimated_minutes),
+      blockedBy,
+      commentCount: num(r.comment_count, 0),
+      dependencyCount: num(r.dependency_count, 0),
+      dependentCount: num(r.dependent_count, 0),
     };
   }
 
@@ -322,16 +333,9 @@ and install beads from https://beads.gascity.com if needed.`,
           error: "Unexpected `bd list --json` output (expected a JSON array).",
         };
       }
-      const drafts = parsed
-        .map((row) => toIssueDraft(row))
-        .filter((draft): draft is IssueDraft => draft !== null);
-      const statusById = new Map(drafts.map((d) => [d.node.id, d.node.status]));
-      const issues = drafts.map((draft) => {
-        const hasBlockingDeps = draft.depTargets.some(
-          (target) => (statusById.get(target) ?? "open") !== "closed",
-        );
-        return hasBlockingDeps ? { ...draft.node, hasBlockingDeps: true } : draft.node;
-      });
+      const issues = parsed
+        .map((row) => toIssueNode(row))
+        .filter((node): node is BdIssueNode => node !== null);
       return { initialized: true, issues, error: null };
     },
     issue_show: async ({ threadId, id }, ctx) => {

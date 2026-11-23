@@ -51,8 +51,8 @@ const bdIssueNode = z
     labels: z.array(z.string()),
     dueAt: z.string().nullable(),
     estimatedMinutes: z.number().int().nullable(),
-    // True when the issue has a non-parent dependency on an unclosed issue.
-    hasBlockingDeps: z.boolean(),
+    // Ids of the issues this one waits on (`blocks` dependencies only).
+    blockedBy: z.array(z.string()),
     commentCount: z.number().int(),
     dependencyCount: z.number().int(),
     dependentCount: z.number().int(),
@@ -60,6 +60,10 @@ const bdIssueNode = z
   .strict();
 
 export type BdIssueNode = z.infer<typeof bdIssueNode>;
+
+// Side-panel layouts, selectable in the plugin settings.
+export const PANEL_LAYOUTS = ["split", "grouped", "drill"] as const;
+export type PanelLayout = (typeof PANEL_LAYOUTS)[number];
 
 export const rpcContract = defineRpcContract({
   issues_tree: {
