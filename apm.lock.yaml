@@ -1,0 +1,120 @@
+lockfile_version: '1'
+apm_version: 0.32.0
+dependencies:
+- repo_url: _local/bb-ui-debug
+  name: bb-ui-debug
+  version: unknown
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/bb-ui-debug
+  - .agents/skills/bb-ui-debug/SKILL.md
+  - .agents/skills/bb-ui-debug/scripts/bb-cdp.mjs
+  - .agents/skills/bb-ui-debug/scripts/navigate.mjs
+  - .agents/skills/bb-ui-debug/scripts/session.sh
+  - .claude/skills/bb-ui-debug
+  - .claude/skills/bb-ui-debug/SKILL.md
+  - .claude/skills/bb-ui-debug/scripts/bb-cdp.mjs
+  - .claude/skills/bb-ui-debug/scripts/navigate.mjs
+  - .claude/skills/bb-ui-debug/scripts/session.sh
+  deployed_file_hashes:
+    .agents/skills/bb-ui-debug/SKILL.md: sha256:6d9bf2a9674ca6c9ca69d679feaa98d9a8fc574ba650caa488b097ae7fe6e4a6
+    .agents/skills/bb-ui-debug/scripts/bb-cdp.mjs: sha256:e70369cab96228419ac2d2bce636bf474644e3a65c77a4741113eef15f5ee853
+    .agents/skills/bb-ui-debug/scripts/navigate.mjs: sha256:8a35b0a2ea946089eddc924a6120e54438291518b9fe31f4c867086d7412a4c5
+    .agents/skills/bb-ui-debug/scripts/session.sh: sha256:a8a8875aafca085bca79c332d201bb96a34bac60c69e918d6d82b4c6a0f5c81b
+    .claude/skills/bb-ui-debug/SKILL.md: sha256:6d9bf2a9674ca6c9ca69d679feaa98d9a8fc574ba650caa488b097ae7fe6e4a6
+    .claude/skills/bb-ui-debug/scripts/bb-cdp.mjs: sha256:e70369cab96228419ac2d2bce636bf474644e3a65c77a4741113eef15f5ee853
+    .claude/skills/bb-ui-debug/scripts/navigate.mjs: sha256:8a35b0a2ea946089eddc924a6120e54438291518b9fe31f4c867086d7412a4c5
+    .claude/skills/bb-ui-debug/scripts/session.sh: sha256:a8a8875aafca085bca79c332d201bb96a34bac60c69e918d6d82b4c6a0f5c81b
+  source: local
+  local_path: ./skills/bb-ui-debug
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bb-ui-debug
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bb-ui-debug/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:6d9bf2a9674ca6c9ca69d679feaa98d9a8fc574ba650caa488b097ae7fe6e4a6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bb-ui-debug/scripts/bb-cdp.mjs
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:e70369cab96228419ac2d2bce636bf474644e3a65c77a4741113eef15f5ee853
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bb-ui-debug/scripts/navigate.mjs
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:8a35b0a2ea946089eddc924a6120e54438291518b9fe31f4c867086d7412a4c5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/bb-ui-debug/scripts/session.sh
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:a8a8875aafca085bca79c332d201bb96a34bac60c69e918d6d82b4c6a0f5c81b
+- kind: project-relative
+  target: codex
+  value: .agents/skills/bb-ui-debug
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/bb-ui-debug/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:6d9bf2a9674ca6c9ca69d679feaa98d9a8fc574ba650caa488b097ae7fe6e4a6
+- kind: project-relative
+  target: codex
+  value: .agents/skills/bb-ui-debug/scripts/bb-cdp.mjs
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:e70369cab96228419ac2d2bce636bf474644e3a65c77a4741113eef15f5ee853
+- kind: project-relative
+  target: codex
+  value: .agents/skills/bb-ui-debug/scripts/navigate.mjs
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:8a35b0a2ea946089eddc924a6120e54438291518b9fe31f4c867086d7412a4c5
+- kind: project-relative
+  target: codex
+  value: .agents/skills/bb-ui-debug/scripts/session.sh
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/bb-ui-debug
+  active_owner: ./skills/bb-ui-debug
+  content_hash: sha256:a8a8875aafca085bca79c332d201bb96a34bac60c69e918d6d82b4c6a0f5c81b
