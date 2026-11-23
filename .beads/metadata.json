@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "bb_plugin_beads",
+  "project_id": "5e001d89-e758-4453-aa8b-a11546b5dba8"
+}
