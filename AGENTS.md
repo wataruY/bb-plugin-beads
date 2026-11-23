@@ -1,52 +1,71 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
+A [BB](https://getbb.app) plugin that integrates
+[beads](https://beads.gascity.com) — the dependency-aware, Dolt-backed issue
+tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 
-> **Architecture in one line:** Issues live in a local Dolt database
-> (`.beads/dolt/`); cross-machine sync uses `bd dolt push/pull` (a
-> git-compatible protocol), stored under `refs/dolt/data` on your git
-> remote — separate from `refs/heads/*` where your code lives.
-> `.beads/issues.jsonl` is a passive export, not the wire protocol.
->
-> See [sync-concepts](https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md)
-> for the one-screen overview and anti-patterns (don't treat JSONL as the
-> source of truth; don't `bd import` during normal operation; don't
-> reach for third-party Dolt hosting before trying the default).
+## Surfaces
 
-## Quick Reference
+- **`beads` agent tool** (`server.ts`) — runs any `bd` command in the
+  thread's environment checkout through the plugin's full-trust `bb.host`
+  worker.
+- **Beads issues side panel** (`app.tsx`) — thread side-panel tab with a
+  draggable horizontal split: issue tree on top (status dots, P0–P4 badges,
+  labels, due/estimate markers, blocked-by markers), detail pane below
+  (description, acceptance, design, notes, dependencies).
+- **`bb beads` CLI** (`server.ts`) — `bb beads -- <bd-args...>` passthrough
+  (arguments go to `bd` verbatim) and `bb beads check`.
+- **`beads` skill** (`skills/beads/SKILL.md`) — standing instructions for
+  agents.
+
+## File map
+
+- `server.ts` — backend entry: agent tool, CLI, settings, RPC handlers
+  (`issues_tree`, `issue_show`).
+- `app.tsx` — frontend entry: the side-panel tab (React, bundled by bb).
+- `contract.ts` — zod contracts: host (`bd_run`, `bd_check`), frontend RPC,
+  CLI. Keep the RPC node shapes in sync with `bd`'s JSON output.
+- `host.ts` — `bb.host` worker that spawns `bd` (bounded output, timeouts).
+- `skills/beads/SKILL.md` — agent instructions.
+
+## Data flow
+
+`app.tsx` → plugin RPC (`issues_tree`/`issue_show`) → `server.ts` →
+`bb.hosts` worker (`host.ts`) → `bd` in the thread's environment checkout.
+Successful **mutating** `bd` runs invalidate the `beads:issues` RPC tag so
+every open panel refetches; read-only commands (see `READ_ONLY_BD_COMMANDS`
+in `server.ts`) must stay excluded, or the panel's own refresh invalidates
+itself in a loop.
+
+## Build & verify
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+npx tsc --noEmit        # typecheck (must be clean)
+bb plugin build         # build dist/{app,server,host} bundles
+bb plugin reload beads  # reload the installed plugin (path install)
+bb beads check          # verify the bd binary is reachable
+# end-to-end RPC test (write {"threadId":"thr_..."} to a file first):
+bb plugin rpc call beads issues_tree --input-file /tmp/rpc-in.json
 ```
 
-## Non-Interactive Shell Commands
+## Project constraints (learned the hard way)
 
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
-
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
-
-**Use these forms instead:**
-```bash
-# Force overwrite without prompting
-cp -f source dest           # NOT: cp source dest
-mv -f source dest           # NOT: mv source dest
-rm -f file                  # NOT: rm file
-
-# For recursive operations
-rm -rf directory            # NOT: rm -r directory
-cp -rf source dest          # NOT: cp -r source dest
-```
-
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
-
+- `bb plugin build` **manages `tsconfig.json`** — hand edits are regenerated;
+  don't fight it. The SDK's bundled types reference host-side packages, so
+  keep type-only devDependencies for them (`@types/better-sqlite3`, `hono`).
+  `bb plugin types` repins the SDK entry (the SDK lives in `dependencies`).
+- React and the SDK are **runtime-shimmed** by bb — never bundle them, import
+  freely. `zod` and `lucide-react` bundle from your `node_modules` (keep them
+  in `dependencies`).
+- `bd` JSON output is snake_case (`issue_type`, `updated_at`, `labels`,
+  `due_at`, `estimated_minutes`, `acceptance_criteria`, ...); the tree node
+  contract maps it to camelCase. Dependency entries differ between commands:
+  `bd list` uses `issue_id`/`depends_on_id`/`type`, `bd show` uses
+  `id`/`title`/`status`/`dependency_type`.
+- `bd delete` only prints a preview without `--force`; set an issue's status
+  with `bd update <id> --status <s>` (there is no `bd status <id> <s>`).
+- The side panel is **read-only**; mutations go through the agent tool or
+  `bb beads`.
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6ffdf896 -->
 ## Beads Issue Tracker
 
@@ -102,7 +121,6 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->
-
 <!-- BEGIN BEADS CODEX SETUP: generated by bd setup codex -->
 ## Beads Issue Tracker
 
