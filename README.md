@@ -9,6 +9,9 @@ tracker for AI coding agents (`bd` CLI) — into BB threads.
 - **`beads` agent tool** — runs any `bd` command in the thread's environment
   checkout through the plugin's full-trust `bb.host` worker, so beads works
   on the machine the checkout lives on.
+- **Beads issues side panel** — a thread side-panel tab showing the issue
+  tree of the thread's checkout (status, priority, type, description,
+  dependencies). Refreshes automatically after mutating `bd` commands.
 - **`bb beads` CLI** — `bb beads -- <bd-args...>` passthrough and
   `bb beads check` to verify the `bd` binary is reachable.
 - **`beads` skill** — standing instructions injected into agent threads.
@@ -30,14 +33,18 @@ In a repo without beads yet, run `bb beads -- init --skip-agents
 
 ## Structure
 
-- `server.ts` — backend entry: agent tool, CLI command, settings.
+- `server.ts` — backend entry: agent tool, CLI command, settings, and the
+  side-panel RPC handlers (`issues_tree`, `issue_show`).
+- `app.tsx` — frontend entry: the Beads issues side-panel tab (issue tree +
+  detail pane).
+- `contract.ts` — host, RPC, and CLI contracts (zod-validated).
 - `host.ts` — `bb.host` worker that spawns `bd` (bounded output, timeouts).
 - `skills/beads/SKILL.md` — agent instructions.
 
 ## Development
 
-```
+```bash
 npx tsc --noEmit   # typecheck
-bb plugin build    # build server + host bundles
+bb plugin build    # build app + server + host bundles
 bb plugin reload beads
 ```

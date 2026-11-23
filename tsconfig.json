@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "skipLibCheck": true,
     "strict": true,
     "target": "ES2022",
     "module": "ESNext",
@@ -7,6 +8,7 @@
     "jsx": "react-jsx",
     "lib": [
       "ES2022",
+      "ES2024.Promise",
       "DOM"
     ],
     "types": [
@@ -21,10 +23,9 @@
     "skipLibCheck": false
   },
   "include": [
+    "contract.ts",
+    "host.ts",
     "server.ts",
-    "app.tsx",
-    "components",
-    "lib",
-    "hooks"
+    "app.tsx"
   ]
 }

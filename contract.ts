@@ -35,3 +35,55 @@ export const hostContract = defineRpcContract({
 
 export const hostSignals = {} satisfies ExperimentalHostSignals;
 
+// Frontend <-> backend RPC contract (app.tsx -> server.ts), separate from the
+// host contract above. The frontend reads the issue tree of a thread's
+// environment checkout; the backend runs `bd` through the host worker.
+const bdIssueNode = z
+  .object({
+    id: z.string().min(1),
+    title: z.string(),
+    status: z.string(),
+    priority: z.number().int(),
+    type: z.string(),
+    parent: z.string().nullable(),
+    owner: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    labels: z.array(z.string()),
+    dueAt: z.string().nullable(),
+    estimatedMinutes: z.number().int().nullable(),
+    // True when the issue has a non-parent dependency on an unclosed issue.
+    hasBlockingDeps: z.boolean(),
+    commentCount: z.number().int(),
+    dependencyCount: z.number().int(),
+    dependentCount: z.number().int(),
+  })
+  .strict();
+
+export type BdIssueNode = z.infer<typeof bdIssueNode>;
+
+export const rpcContract = defineRpcContract({
+  issues_tree: {
+    input: z.object({ threadId: z.string().min(1) }).strict(),
+    output: z
+      .object({
+        initialized: z.boolean(),
+        issues: z.array(bdIssueNode),
+        error: z.string().nullable(),
+      })
+      .strict(),
+    tags: () => ["beads:issues"],
+  },
+  issue_show: {
+    input: z.object({ threadId: z.string().min(1), id: z.string().min(1) }).strict(),
+    output: z
+      .object({
+        // Raw `bd show <id> --json` output (a one-element JSON array) so the
+        // panel is resilient to bd's evolving field set.
+        json: z.string().nullable(),
+        error: z.string().nullable(),
+      })
+      .strict(),
+    tags: () => ["beads:issues"],
+  },
+});
+

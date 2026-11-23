@@ -5,13 +5,7 @@ import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { spawn } from "node:child_process";
 import { hostContract, hostSignals } from "./contract.js";
 
-const MAX_CAPTURE = 128 * 1024;
-
-function cap(text: string): string {
-  return text.length > MAX_CAPTURE
-    ? `${text.slice(0, MAX_CAPTURE)}\n... [truncated]`
-    : text;
-}
+const MAX_CAPTURE = 2 * 1024 * 1024;
 
 interface RunResult {
   exitCode: number;
@@ -39,6 +33,8 @@ function runCommand(
     });
     let stdout = "";
     let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -46,22 +42,42 @@ function runCommand(
     }, timeoutMs);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (stdout.length < MAX_CAPTURE) stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      if (stderr.length < MAX_CAPTURE) stderr += chunk;
-    });
+    const append = (
+      chunk: string,
+      state: { text: string; truncated: boolean },
+    ): void => {
+      if (state.text.length >= MAX_CAPTURE) {
+        state.truncated = true;
+        return;
+      }
+      const room = MAX_CAPTURE - state.text.length;
+      if (chunk.length > room) {
+        state.text += chunk.slice(0, room);
+        state.truncated = true;
+      } else {
+        state.text += chunk;
+      }
+    };
+    const stdoutState = { text: stdout, truncated: false };
+    const stderrState = { text: stderr, truncated: false };
+    child.stdout.on("data", (chunk: string) => append(chunk, stdoutState));
+    child.stderr.on("data", (chunk: string) => append(chunk, stderrState));
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      stdoutTruncated = stdoutState.truncated;
+      stderrTruncated = stderrState.truncated;
+      const finish = (text: string, truncated: boolean) =>
+        truncated ? `${text}\n... [truncated]` : text;
       resolve({
         exitCode: timedOut ? 124 : (code ?? 1),
-        stdout: cap(stdout),
-        stderr: timedOut ? `${cap(stderr)}\n... [timed out after ${timeoutMs}ms]` : cap(stderr),
+        stdout: finish(stdoutState.text, stdoutTruncated),
+        stderr: timedOut
+          ? `${finish(stderrState.text, stderrTruncated)}\n... [timed out after ${timeoutMs}ms]`
+          : finish(stderrState.text, stderrTruncated),
         timedOut,
       });
     });

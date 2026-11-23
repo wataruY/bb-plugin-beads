@@ -8,7 +8,7 @@
 //  3. skills/beads/SKILL.md: standing instructions for agents.
 import { PLUGIN_CLI_OUTPUT_MAX_BYTES, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { hostContract, hostSignals } from "./contract.js";
+import { hostContract, hostSignals, rpcContract, type BdIssueNode } from "./contract.js";
 
 const BD_TIMEOUT_MS = 5 * 60_000;
 const TOOL_OUTPUT_MAX = 20_000;
@@ -70,6 +70,25 @@ export default async function plugin(bb: BbPluginApi) {
     return null;
   }
 
+  // Resolve a thread's environment checkout without requiring a turn to have
+  // run on it (the threadEnvs cache only fills at turn start). Used by the
+  // side-panel RPC handlers.
+  async function resolveThreadEnv(threadId: string): Promise<ThreadEnv | null> {
+    const cached = threadEnvs.get(threadId);
+    if (cached !== undefined) return cached;
+    try {
+      const thread = await bb.sdk.threads.get({ threadId });
+      if (thread.environmentId == null) return null;
+      const env = await bb.sdk.environments.get({
+        environmentId: thread.environmentId,
+      });
+      if (env.path == null) return null;
+      return { cwd: env.path, hostId: env.hostId };
+    } catch {
+      return null;
+    }
+  }
+
   interface BdRun {
     exitCode: number;
     stdout: string;
@@ -84,10 +103,16 @@ export default async function plugin(bb: BbPluginApi) {
 
   async function runBd(
     args: readonly string[],
-    options: { threadId: string | null; signal?: AbortSignal; fallbackCwd?: string },
+    options: {
+      threadId: string | null;
+      signal?: AbortSignal;
+      fallbackCwd?: string;
+      env?: ThreadEnv;
+    },
   ): Promise<{ result: BdRun | null; error: string | null }> {
     if (args.length === 0) return { result: null, error: "No bd arguments given." };
-    const env = await resolveEnv(options.threadId, options.fallbackCwd);
+    const env =
+      options.env ?? (await resolveEnv(options.threadId, options.fallbackCwd));
     if (env === null) return { result: null, error: noCwdError };
     let result: BdRun;
     try {
@@ -104,6 +129,12 @@ Check the "Path to the \`bd\` beads CLI" setting (currently "${bdPath}") with \`
 and install beads from https://beads.gascity.com if needed.`,
       };
     }
+    // Any successful mutating `bd` run may have changed the issue graph;
+    // refresh the side-panel tree in every client once. Reads are excluded
+    // so the panel's own refresh does not invalidate itself.
+    if (!READ_ONLY_BD_COMMANDS.has(args[0])) {
+      bb.rpc.experimental_invalidate(["beads:issues"]);
+    }
     return { result, error: null };
   }
 
@@ -113,11 +144,12 @@ and install beads from https://beads.gascity.com if needed.`,
       "Run a `bd` (beads issue tracker, https://beads.gascity.com) command in this thread's environment checkout and return its output. " +
       'Start a session with args=["prime"] for the workflow context, find work with args=["ready"], query with ' +
       'args=["list","--open"] or args=["show","bd-a1b2"], plan with args=["create", ...], and record progress with ' +
-      'args=["status","bd-a1b2","in_progress"] / args=["close","bd-a1b2"]. Many commands accept --json for structured output.',
+      'args=["update","bd-a1b2","--status","in_progress"] / args=["close","bd-a1b2"]. Many commands accept --json for structured output.',
     instructions:
       "Use the `beads` tool to manage the beads issue graph (https://beads.gascity.com) via the `bd` CLI. " +
       "Run `prime` first in a repo for the workflow protocol; pick work with `ready`; create work as children of an epic; " +
-      "set status to in_progress before starting and close when done, adding a comment. Pass --json when parsing results.",
+      "mark work in_progress with `update <id> --status in_progress` and close it with `close <id>` when done, adding a comment. " +
+      "Pass --json when parsing results.",
     parameters: z.object({
       args: z
         .array(z.string().min(1))
@@ -154,6 +186,180 @@ and install beads from https://beads.gascity.com if needed.`,
     return { tools: ["beads"], skills: [] };
   });
 
+  // `bd` subcommands that only read the issue graph. Mutating commands
+  // invalidate the side-panel tree; reads must not, or the panel's own
+  // refresh would invalidate itself in a loop.
+  const READ_ONLY_BD_COMMANDS = new Set([
+    "list",
+    "show",
+    "ready",
+    "query",
+    "search",
+    "count",
+    "status",
+    "statuses",
+    "types",
+    "children",
+    "graph",
+    "history",
+    "versions",
+    "lint",
+    "stale",
+    "diff",
+    "prime",
+    "where",
+    "check",
+    "help",
+    "version",
+    "whoami",
+  ]);
+
+  // Parse one `bd list --json` row into the slim node the frontend tree
+  // consumes, plus the issue's non-hierarchy dependency targets (used to
+  // compute hasBlockingDeps). Beads output is freeform at this boundary;
+  // keep only the fields the tree needs and drop rows that are not issues.
+  type IssueDraft = { node: BdIssueNode; depTargets: string[] };
+
+  function toIssueDraft(row: unknown): IssueDraft | null {
+    if (typeof row !== "object" || row === null) return null;
+    const r = row as Record<string, unknown>;
+    if (typeof r.id !== "string" || r.id === "" || typeof r.title !== "string") {
+      return null;
+    }
+    const num = (value: unknown, fallback: number): number =>
+      typeof value === "number" && Number.isFinite(value) ? value : fallback;
+    const numOrNull = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    const str = (value: unknown): string | null =>
+      typeof value === "string" && value !== "" ? value : null;
+    const labels = Array.isArray(r.labels)
+      ? r.labels.filter((label): label is string => typeof label === "string")
+      : [];
+    // Non-hierarchy dependencies (blocks/blocked-by/...); parent-child links
+    // are already represented by `parent` and are excluded here.
+    const depTargets: string[] = [];
+    if (Array.isArray(r.dependencies)) {
+      for (const dep of r.dependencies) {
+        if (typeof dep !== "object" || dep === null) continue;
+        const d = dep as Record<string, unknown>;
+        if (d.type === "parent-child") continue;
+        if (typeof d.depends_on_id === "string") depTargets.push(d.depends_on_id);
+      }
+    }
+    return {
+      node: {
+        id: r.id,
+        title: r.title,
+        status: typeof r.status === "string" ? r.status : "open",
+        priority: num(r.priority, 2),
+        type: typeof r.issue_type === "string" ? r.issue_type : "task",
+        parent: str(r.parent),
+        owner: str(r.owner),
+        updatedAt: str(r.updated_at),
+        labels,
+        dueAt: str(r.due_at),
+        estimatedMinutes: numOrNull(r.estimated_minutes),
+        hasBlockingDeps: false,
+        commentCount: num(r.comment_count, 0),
+        dependencyCount: num(r.dependency_count, 0),
+        dependentCount: num(r.dependent_count, 0),
+      },
+      depTargets,
+    };
+  }
+
+  // Side-panel RPC: the frontend tree reads the thread's issue graph through
+  // the same host worker the agent tool and CLI use.
+  bb.rpc.register(rpcContract, {
+    issues_tree: async ({ threadId }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) {
+        return {
+          initialized: false,
+          issues: [],
+          error: "This thread has no environment checkout to run `bd` in.",
+        };
+      }
+      const { result, error } = await runBd(["list", "--all", "--json"], {
+        threadId,
+        signal: ctx.experimental_signal,
+        env,
+      });
+      if (error !== null) return { initialized: false, issues: [], error };
+      if (result!.exitCode !== 0) {
+        const stderr = result!.stderr.trim();
+        if (/no beads database found/i.test(stderr)) {
+          return {
+            initialized: false,
+            issues: [],
+            error:
+              "Beads is not initialized in this checkout. Run `bd init --skip-agents --non-interactive`, or ask the agent to run the beads tool with args [\"init\", \"--skip-agents\", \"--non-interactive\"].",
+          };
+        }
+        return {
+          initialized: false,
+          issues: [],
+          error:
+            stderr !== ""
+              ? stderr
+              : `bd list failed (exit ${result!.exitCode})`,
+        };
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(result!.stdout);
+      } catch {
+        return {
+          initialized: true,
+          issues: [],
+          error: "Could not parse the `bd list --json` output.",
+        };
+      }
+      if (!Array.isArray(parsed)) {
+        return {
+          initialized: true,
+          issues: [],
+          error: "Unexpected `bd list --json` output (expected a JSON array).",
+        };
+      }
+      const drafts = parsed
+        .map((row) => toIssueDraft(row))
+        .filter((draft): draft is IssueDraft => draft !== null);
+      const statusById = new Map(drafts.map((d) => [d.node.id, d.node.status]));
+      const issues = drafts.map((draft) => {
+        const hasBlockingDeps = draft.depTargets.some(
+          (target) => (statusById.get(target) ?? "open") !== "closed",
+        );
+        return hasBlockingDeps ? { ...draft.node, hasBlockingDeps: true } : draft.node;
+      });
+      return { initialized: true, issues, error: null };
+    },
+    issue_show: async ({ threadId, id }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) {
+        return {
+          json: null,
+          error: "This thread has no environment checkout to run `bd` in.",
+        };
+      }
+      const { result, error } = await runBd(["show", id, "--json"], {
+        threadId,
+        signal: ctx.experimental_signal,
+        env,
+      });
+      if (error !== null) return { json: null, error };
+      if (result!.exitCode !== 0) {
+        const stderr = result!.stderr.trim();
+        return {
+          json: null,
+          error:
+            stderr !== "" ? stderr : `bd show failed (exit ${result!.exitCode})`,
+        };
+      }
+      return { json: result!.stdout, error: null };
+    },
+  });
+
   const usage = [
     "Usage:",
     "  bb beads -- <bd-args...>     Run any bd command, e.g. bb beads -- list",
@@ -178,8 +384,9 @@ and install beads from https://beads.gascity.com if needed.`,
       },
     ],
     async run(argv, ctx) {
-      const json = argv.includes("--json");
-      const positional = argv.filter((arg) => arg !== "--json");
+      // Passthrough: every argument after `--` goes to bd verbatim (including
+      // bd's own --json flag).
+      const positional = [...argv];
       if (positional[0] === "check") {
         const env = await resolveEnv(ctx.threadId ?? null, ctx.cwd);
         if (env === null) return { exitCode: 1, stderr: noCwdError };
@@ -194,7 +401,7 @@ and install beads from https://beads.gascity.com if needed.`,
             : `bd not usable (${result.error ?? "unknown error"})`;
           return {
             exitCode: result.ok ? 0 : 1,
-            stdout: json ? JSON.stringify(result) : text,
+            stdout: text,
           };
         } catch (error) {
           return {
