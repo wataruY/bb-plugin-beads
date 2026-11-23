@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-23T06:25:32.463270+00:00",
+  "title": "Design System: Beads issues for bb",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Night Paper",
+        "canonical": "oklch(19.5% 0 0)",
+        "light": "oklch(100% 0 0)",
+        "cssVar": "--background",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(81% 0 0)",
+        "light": "oklch(32.11% 0 0)",
+        "cssVar": "--foreground",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Pencil",
+        "canonical": "oklch(78% 0 0)",
+        "light": "oklch(44% 0 0)",
+        "cssVar": "--muted-foreground",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "subtle-foreground": {
+        "role": "neutral",
+        "displayName": "Faint Pencil",
+        "canonical": "oklch(68% 0 0)",
+        "light": "oklch(50% 0 0)",
+        "cssVar": "--subtle-foreground",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Ruled Line",
+        "canonical": "color-mix(in oklch, var(--foreground) 19.4%, var(--background))",
+        "light": "color-mix(in oklch, var(--foreground) 14%, var(--background))",
+        "cssVar": "--border",
+        "tonalRamp": []
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Ink Button",
+        "canonical": "oklch(82% 0 0)",
+        "light": "oklch(27% 0 0)",
+        "cssVar": "--primary",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "primary-foreground": {
+        "role": "primary",
+        "displayName": "Ink Button Text",
+        "canonical": "oklch(21.78% 0 0)",
+        "light": "oklch(100% 0 0)",
+        "cssVar": "--primary-foreground",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(87% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "surface-recessed": {
+        "role": "neutral",
+        "displayName": "Recessed Tint",
+        "canonical": "color-mix(in oklab, var(--foreground) 6%, transparent)",
+        "light": "color-mix(in oklab, var(--foreground) 6%, transparent)",
+        "cssVar": "--surface-recessed",
+        "tonalRamp": []
+      },
+      "surface-selected": {
+        "role": "neutral",
+        "displayName": "Selected Tint",
+        "canonical": "color-mix(in oklab, var(--primary) 12%, transparent)",
+        "light": "color-mix(in oklab, var(--primary) 16%, transparent)",
+        "cssVar": "--surface-selected",
+        "tonalRamp": []
+      },
+      "status-in-progress": {
+        "role": "semantic",
+        "displayName": "Working Blue",
+        "canonical": "oklch(72% 0.09 250)",
+        "light": "oklch(55% 0.1 250)",
+        "cssVar": "--timeline-accent",
+        "tonalRamp": [
+          "oklch(15% 0.03 250)",
+          "oklch(27% 0.048 250)",
+          "oklch(39% 0.066 250)",
+          "oklch(51% 0.084 250)",
+          "oklch(63% 0.078 250)",
+          "oklch(75% 0.06 250)",
+          "oklch(87% 0.042 250)",
+          "oklch(95% 0.03 250)"
+        ]
+      },
+      "status-blocked": {
+        "role": "semantic",
+        "displayName": "Stop Red",
+        "canonical": "oklch(65% 0.16 22)",
+        "light": "oklch(45% 0.19 25.86)",
+        "cssVar": "--destructive-text",
+        "tonalRamp": [
+          "oklch(15% 0.053 22)",
+          "oklch(27% 0.085 22)",
+          "oklch(39% 0.117 22)",
+          "oklch(51% 0.149 22)",
+          "oklch(63% 0.139 22)",
+          "oklch(75% 0.107 22)",
+          "oklch(87% 0.075 22)",
+          "oklch(95% 0.053 22)"
+        ]
+      },
+      "status-closed": {
+        "role": "semantic",
+        "displayName": "Done Green",
+        "canonical": "oklch(74% 0.15 155)",
+        "light": "oklch(70% 0.15 155)",
+        "cssVar": "--success",
+        "tonalRamp": [
+          "oklch(15% 0.05 155)",
+          "oklch(27% 0.08 155)",
+          "oklch(39% 0.11 155)",
+          "oklch(51% 0.14 155)",
+          "oklch(63% 0.13 155)",
+          "oklch(75% 0.1 155)",
+          "oklch(87% 0.07 155)",
+          "oklch(95% 0.05 155)"
+        ]
+      },
+      "priority-high": {
+        "role": "semantic",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(75% 0.16 50)",
+        "light": "oklch(70% 0.16 50)",
+        "cssVar": "--warning",
+        "tonalRamp": [
+          "oklch(15% 0.053 50)",
+          "oklch(27% 0.085 50)",
+          "oklch(39% 0.117 50)",
+          "oklch(51% 0.149 50)",
+          "oklch(63% 0.139 50)",
+          "oklch(75% 0.107 50)",
+          "oklch(87% 0.075 50)",
+          "oklch(95% 0.053 50)"
+        ]
+      },
+      "type-epic": {
+        "role": "semantic",
+        "displayName": "Epic Violet",
+        "canonical": "oklch(68% 0.18 295)",
+        "light": "oklch(53% 0.2 295)",
+        "cssVar": "--pr-merged",
+        "tonalRamp": [
+          "oklch(15% 0.06 295)",
+          "oklch(27% 0.096 295)",
+          "oklch(39% 0.132 295)",
+          "oklch(51% 0.168 295)",
+          "oklch(63% 0.156 295)",
+          "oklch(75% 0.12 295)",
+          "oklch(87% 0.084 295)",
+          "oklch(95% 0.06 295)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Issue title in detail and the form's title input."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Markdown prose and textareas; 16px inputs on touch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Section headings, property labels, button text."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "IDs, counts, dates, chips; never below 12px."
+      },
+      "id": {
+        "displayName": "Issue ID",
+        "purpose": "Monospace, issue IDs only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 4px 12px -4px rgb(0 0 0 / 0.18)",
+        "purpose": "Only on elements floating over content (issue picker)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "none-by-default",
+        "value": "none",
+        "purpose": "State changes are instant; only the refresh icon spins while fetching."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "coarse-pointer",
+        "value": "(pointer: coarse)",
+        "purpose": "Touch layout: 44px rows and targets, 16px padding."
+      },
+      {
+        "name": "fine-pointer",
+        "value": "(pointer: fine)",
+        "purpose": "Desktop side panel may tighten rows to 28-32px."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action on a screen (Create issue, Save changes).",
+      "html": "<button class=\"ds-btn-primary\">Create issue</button>",
+      "css": ".ds-btn-primary{background:var(--primary);color:var(--primary-foreground);font:500 12px/1 'Inter Variable',Inter,sans-serif;height:44px;padding:0 12px;border:0;border-radius:6px;cursor:pointer}.ds-btn-primary:hover{opacity:.9}.ds-btn-primary:focus-visible{outline:2px solid var(--ring);outline-offset:1px}.ds-btn-primary:disabled{opacity:.4}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary actions: Edit, Sub-issue, Add, Cancel.",
+      "html": "<button class=\"ds-btn-ghost\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 5v14M5 12h14\"/></svg>Add</button>",
+      "css": ".ds-btn-ghost{display:inline-flex;align-items:center;gap:4px;height:44px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--subtle-foreground);font:500 12px 'Inter Variable',Inter,sans-serif;cursor:pointer}.ds-btn-ghost:hover{background:var(--surface-recessed);color:var(--foreground)}.ds-btn-ghost:focus-visible{outline:1px solid var(--ring)}"
+    },
+    {
+      "name": "Property Chip",
+      "kind": "chip",
+      "refersTo": "chip-property",
+      "description": "Status / priority / type; editable variant wraps a native select.",
+      "html": "<label class=\"ds-chip\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\"><circle cx=\"8\" cy=\"8\" r=\"6\" fill=\"none\" stroke=\"var(--timeline-accent)\" stroke-width=\"1.5\"/><path d=\"M8 4a4 4 0 0 1 0 8z\" fill=\"var(--timeline-accent)\"/></svg>In progress<svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m6 9 6 6 6-6\"/></svg></label>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-raised);color:var(--foreground);font:400 12px 'Inter Variable',Inter,sans-serif;cursor:pointer}.ds-chip:hover{background:var(--surface-recessed)}.ds-chip:focus-within{outline:1px solid var(--ring)}"
+    },
+    {
+      "name": "Issue Row",
+      "kind": "custom",
+      "refersTo": "issue-row",
+      "description": "Status glyph, type glyph, title, meta; 44px on touch.",
+      "html": "<div class=\"ds-row\" tabindex=\"0\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\"><circle cx=\"8\" cy=\"8\" r=\"6\" fill=\"none\" stroke=\"var(--destructive-text)\" stroke-width=\"1.5\"/><path d=\"M4 12 12 4\" stroke=\"var(--destructive-text)\" stroke-width=\"1.5\"/></svg><span class=\"ds-row-title\">Status and priority badges</span><span class=\"ds-row-meta\">2/5</span><span class=\"ds-row-p\">P1</span></div>",
+      "css": ".ds-row{display:flex;align-items:center;gap:6px;height:44px;padding:0 8px;border-radius:6px;font:400 13px 'Inter Variable',Inter,sans-serif;color:var(--foreground);cursor:pointer;outline:none}.ds-row:hover{background:var(--surface-recessed)}.ds-row:focus-visible{box-shadow:0 0 0 1px var(--ring)}.ds-row-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-row-meta{font-size:12px;color:var(--subtle-foreground);font-variant-numeric:tabular-nums}.ds-row-p{font-size:12px;font-weight:600;color:var(--warning)}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Auto-growing Markdown textarea with bb voice input.",
+      "html": "<textarea class=\"ds-field\" placeholder=\"Add a description. Markdown works.\"></textarea>",
+      "css": ".ds-field{width:100%;min-height:104px;resize:none;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--foreground);font:400 16px/1.6 'Inter Variable',Inter,sans-serif;outline:none}.ds-field::placeholder{color:var(--subtle-foreground)}.ds-field:focus{border-color:var(--ring)}"
+    },
+    {
+      "name": "Header Bar",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "Context label + count pill, spacer, icon actions.",
+      "html": "<div class=\"ds-bar\"><span class=\"ds-bar-label\">Issues</span><span class=\"ds-pill\">14 open</span><span style=\"flex:1\"></span><button class=\"ds-icon\" aria-label=\"New issue\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 5v14M5 12h14\"/></svg></button></div>",
+      "css": ".ds-bar{display:flex;align-items:center;gap:6px;height:44px;padding:0 16px;font-family:'Inter Variable',Inter,sans-serif}.ds-bar-label{font-size:12px;font-weight:500;color:var(--muted-foreground)}.ds-pill{border-radius:9999px;background:var(--surface-recessed);padding:0 6px;font-size:12px;line-height:18px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.ds-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;border-radius:6px;background:transparent;color:var(--subtle-foreground);cursor:pointer}.ds-icon:hover{background:var(--surface-recessed);color:var(--foreground)}.ds-icon:focus-visible{outline:1px solid var(--ring)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Field Logbook",
+    "overview": "A working logbook carried into the field, not a dashboard on a wall. The user opens it on a phone between other things: it has to say at once what is moving, what is stuck and what is ready, and it has to take a new entry with one thumb. Every visual decision answers two questions: can this be read in a glance, and can it be hit with a thumb? Style loses when it competes with either.",
+    "keyCharacteristics": [
+      "Monochrome bb chrome; colour is spent only on state (status, blocking, priority, type).",
+      "Status carried by glyph shape first, colour second.",
+      "Thumb-sized rows and controls (44px) on touch; tighter only for fine pointers.",
+      "Metadata never below 12px.",
+      "Flat surfaces; tonal layers instead of shadows."
+    ],
+    "rules": [
+      {
+        "name": "The State-Only Colour Rule",
+        "body": "Hue appears only where it encodes issue state, priority or type. Chrome, borders, buttons and section headings stay neutral.",
+        "section": "colors"
+      },
+      {
+        "name": "The Shape-First Rule",
+        "body": "Every status reads without colour: ring = open, half fill = in progress, slash = blocked, dashed ring = deferred, filled check = closed. Colour only reinforces.",
+        "section": "colors"
+      },
+      {
+        "name": "The 12px Floor Rule",
+        "body": "No text below 12px. bb's text-2xs (10px) is not used for anything the user must read.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "Counts, progress, priorities and dates use tabular-nums.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Surfaces are flat at rest; a shadow is allowed only on something floating over content (picker, popover).",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use bb theme variables and Tailwind tokens (`text-foreground`, `bg-surface-recessed`, `var(--timeline-accent)`). Never use literal colours or Tailwind palette classes.",
+      "Do give every touch target at least 44 by 44px on coarse pointers.",
+      "Do keep text at 12px or larger, and use 16px in inputs on touch.",
+      "Do pair every status colour with its glyph shape.",
+      "Do follow issue-tracker conventions (title first, property chips, sub-issues, blocked-by) before inventing a pattern.",
+      "Do show `bd`'s own error text inline and keep the user's draft intact."
+    ],
+    "donts": [
+      "Don't add colour to chrome, headings, or buttons. Colour encodes state only.",
+      "Don't use `text-2xs` (10px) for readable content.",
+      "Don't reveal actions only on hover. Touch has no hover. The incumbent copy-ID button does this, and it should be made always visible or moved into a menu.",
+      "Don't put a form or detail in a modal. They take over the panel, with a back control.",
+      "Don't use cards, nested boxes, side-stripe accents, or decorative shadows."
+    ]
+  }
+}
