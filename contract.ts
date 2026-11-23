@@ -61,6 +61,14 @@ const bdIssueNode = z
 
 export type BdIssueNode = z.infer<typeof bdIssueNode>;
 
+// The thread's checkout, so the panel can resolve project-relative Markdown
+// links and images.
+const issuesCheckout = z
+  .object({ environmentId: z.string().min(1), rootPath: z.string().min(1) })
+  .strict();
+
+export type IssuesCheckout = z.infer<typeof issuesCheckout>;
+
 // Side-panel layouts, selectable in the plugin settings.
 export const PANEL_LAYOUTS = ["split", "grouped", "drill"] as const;
 export type PanelLayout = (typeof PANEL_LAYOUTS)[number];
@@ -73,6 +81,8 @@ export const rpcContract = defineRpcContract({
         initialized: z.boolean(),
         issues: z.array(bdIssueNode),
         error: z.string().nullable(),
+        // Null when the thread has no environment.
+        checkout: issuesCheckout.nullable(),
       })
       .strict(),
     tags: () => ["beads:issues"],

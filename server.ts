@@ -22,6 +22,8 @@ const TOOL_OUTPUT_MAX = 20_000;
 interface ThreadEnv {
   cwd: string;
   hostId: string;
+  // Null for the CLI fallback, which runs in a bare shell directory.
+  environmentId: string | null;
 }
 
 function truncate(text: string, max: number): string {
@@ -80,7 +82,7 @@ export default async function plugin(bb: BbPluginApi) {
       try {
         const hosts = await bb.sdk.hosts.list();
         const first = hosts[0];
-        if (first != null) return { cwd: fallbackCwd, hostId: first.id };
+        if (first != null) return { cwd: fallbackCwd, hostId: first.id, environmentId: null };
       } catch {
         // ignore
       }
@@ -101,7 +103,7 @@ export default async function plugin(bb: BbPluginApi) {
         environmentId: thread.environmentId,
       });
       if (env.path == null) return null;
-      return { cwd: env.path, hostId: env.hostId };
+      return { cwd: env.path, hostId: env.hostId, environmentId: thread.environmentId };
     } catch {
       return null;
     }
@@ -195,9 +197,9 @@ and install beads from https://beads.gascity.com if needed.`,
   });
 
   bb.agents.configure((context) => {
-    const { path } = context.environment;
+    const { path, id } = context.environment;
     if (path != null) {
-      threadEnvs.set(context.thread.id, { cwd: path, hostId: context.host.id });
+      threadEnvs.set(context.thread.id, { cwd: path, hostId: context.host.id, environmentId: id });
     } else {
       threadEnvs.delete(context.thread.id);
     }
@@ -289,14 +291,17 @@ and install beads from https://beads.gascity.com if needed.`,
           initialized: false,
           issues: [],
           error: "This thread has no environment checkout to run `bd` in.",
+          checkout: null,
         };
       }
+      const checkout =
+        env.environmentId === null ? null : { environmentId: env.environmentId, rootPath: env.cwd };
       const { result, error } = await runBd(["list", "--all", "--json"], {
         threadId,
         signal: ctx.experimental_signal,
         env,
       });
-      if (error !== null) return { initialized: false, issues: [], error };
+      if (error !== null) return { initialized: false, issues: [], error, checkout };
       if (result!.exitCode !== 0) {
         const stderr = result!.stderr.trim();
         if (/no beads database found/i.test(stderr)) {
@@ -305,6 +310,7 @@ and install beads from https://beads.gascity.com if needed.`,
             issues: [],
             error:
               "Beads is not initialized in this checkout. Run `bd init --skip-agents --non-interactive`, or ask the agent to run the beads tool with args [\"init\", \"--skip-agents\", \"--non-interactive\"].",
+            checkout,
           };
         }
         return {
@@ -314,6 +320,7 @@ and install beads from https://beads.gascity.com if needed.`,
             stderr !== ""
               ? stderr
               : `bd list failed (exit ${result!.exitCode})`,
+          checkout,
         };
       }
       let parsed: unknown;
@@ -324,6 +331,7 @@ and install beads from https://beads.gascity.com if needed.`,
           initialized: true,
           issues: [],
           error: "Could not parse the `bd list --json` output.",
+          checkout,
         };
       }
       if (!Array.isArray(parsed)) {
@@ -331,12 +339,13 @@ and install beads from https://beads.gascity.com if needed.`,
           initialized: true,
           issues: [],
           error: "Unexpected `bd list --json` output (expected a JSON array).",
+          checkout,
         };
       }
       const issues = parsed
         .map((row) => toIssueNode(row))
         .filter((node): node is BdIssueNode => node !== null);
-      return { initialized: true, issues, error: null };
+      return { initialized: true, issues, error: null, checkout };
     },
     issue_show: async ({ threadId, id }, ctx) => {
       const env = await resolveThreadEnv(threadId);

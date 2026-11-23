@@ -31,6 +31,7 @@ import {
   PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
+  type IssuesCheckout,
   type PanelLayout,
 } from "./contract.js";
 
@@ -526,13 +527,19 @@ function RelationList({
   );
 }
 
+// Prose fields render images as thumbnails rather than at full size.
+const PROSE_CLASS =
+  "text-[13px] leading-relaxed [&_img]:max-h-40 [&_img]:max-w-full [&_img]:rounded";
+
 function IssueDetail({
   threadId,
+  checkout,
   issue,
   index,
   onSelect,
 }: {
   threadId: string;
+  checkout: IssuesCheckout | null;
   issue: BdIssueNode;
   index: IssueIndex;
   onSelect: (id: string) => void;
@@ -552,6 +559,23 @@ function IssueDetail({
     }
   }, [query.data?.json]);
   const [copied, setCopied] = useState(false);
+  // A virtual document at the checkout root, so bb resolves relative image
+  // sources and file links (`assets/x.png`, `docs/spec.md`) against the project.
+  const markdownDocument = useMemo(
+    () =>
+      checkout === null
+        ? undefined
+        : {
+            threadId,
+            rootPath: checkout.rootPath,
+            target: {
+              kind: "workspace" as const,
+              environmentId: checkout.environmentId,
+              path: "ISSUE.md",
+            },
+          },
+    [threadId, checkout?.environmentId, checkout?.rootPath],
+  );
 
   const status = effectiveStatus(issue, index);
   const parent = issue.parent !== null ? index.byId.get(issue.parent) : undefined;
@@ -683,7 +707,11 @@ function IssueDetail({
         <>
           <InfoSection label="Description">
             {show.description ? (
-              <Markdown content={show.description} className="text-[13px] leading-relaxed" />
+              <Markdown
+                content={show.description}
+                className={PROSE_CLASS}
+                experimental_document={markdownDocument}
+              />
             ) : (
               <p className="text-xs italic text-subtle-foreground">No description</p>
             )}
@@ -701,18 +729,27 @@ function IssueDetail({
             >
               <Markdown
                 content={acceptance}
-                className="text-[13px] leading-relaxed [&_li:has(>input[type=checkbox])]:list-none [&_ul:has(>li>input[type=checkbox])]:pl-0"
+                experimental_document={markdownDocument}
+                className={PROSE_CLASS + " [&_li:has(>input[type=checkbox])]:list-none [&_ul:has(>li>input[type=checkbox])]:pl-0"}
               />
             </InfoSection>
           )}
           {show.design ? (
             <InfoSection label="Design">
-              <Markdown content={show.design} className="text-[13px] leading-relaxed" />
+              <Markdown
+                content={show.design}
+                className={PROSE_CLASS}
+                experimental_document={markdownDocument}
+              />
             </InfoSection>
           ) : null}
           {show.notes ? (
             <InfoSection label="Notes">
-              <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{show.notes}</p>
+              <Markdown
+                content={show.notes}
+                className={PROSE_CLASS}
+                experimental_document={markdownDocument}
+              />
             </InfoSection>
           ) : null}
         </>
@@ -887,6 +924,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       <IssueDetail
         key={selected.id}
         threadId={threadId}
+        checkout={query.data?.checkout ?? null}
         issue={selected}
         index={index}
         onSelect={setSelectedId}
