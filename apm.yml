@@ -5,3 +5,4 @@ target: claude,codex,cursor
 dependencies:
   apm:
     - ./skills/bb-ui-debug
+    - pbakaus/impeccable
