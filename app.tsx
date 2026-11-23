@@ -7,8 +7,10 @@ import {
   experimental_InfoList as InfoList,
   experimental_InfoListRow as InfoListRow,
   experimental_InfoSection as InfoSection,
+  experimental_useRpcMutation,
   experimental_useRpcQuery,
   experimental_useTabVisible,
+  experimental_VoiceInputTextarea as VoiceInputTextarea,
   Markdown,
   useSettings,
 } from "@get-bb/plugin-sdk/app";
@@ -21,16 +23,20 @@ import {
   Copy,
   CornerDownRight,
   Layers,
+  Pencil,
+  Plus,
   RefreshCw,
   Tag,
   Timer,
   User,
+  X,
 } from "lucide-react";
 import { type CSSProperties, useMemo, useRef, useState } from "react";
 import {
   PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
+  type IssueDraft,
   type IssuesCheckout,
   type PanelLayout,
 } from "./contract.js";
@@ -44,6 +50,8 @@ type IssueShow = {
   notes?: string;
   created_at?: string;
   created_by?: string;
+  // int64 as a decimal string; guards edits against concurrent writes.
+  revision?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -527,27 +535,11 @@ function RelationList({
   );
 }
 
-// Prose fields render images as thumbnails rather than at full size.
-const PROSE_CLASS =
-  "text-[13px] leading-relaxed [&_img]:max-h-40 [&_img]:max-w-full [&_img]:rounded";
-
-function IssueDetail({
-  threadId,
-  checkout,
-  issue,
-  index,
-  onSelect,
-}: {
-  threadId: string;
-  checkout: IssuesCheckout | null;
-  issue: BdIssueNode;
-  index: IssueIndex;
-  onSelect: (id: string) => void;
-}) {
+function useIssueShow(threadId: string, id: string) {
   const query = experimental_useRpcQuery({
     contract: rpcContract,
     method: "issue_show",
-    input: { threadId, id: issue.id },
+    input: { threadId, id },
   });
   const show = useMemo<IssueShow | null>(() => {
     if (query.data?.json == null) return null;
@@ -558,6 +550,29 @@ function IssueDetail({
       return null;
     }
   }, [query.data?.json]);
+  return { show, query };
+}
+
+// Prose fields render images as thumbnails rather than at full size.
+const PROSE_CLASS =
+  "text-[13px] leading-relaxed [&_img]:max-h-40 [&_img]:max-w-full [&_img]:rounded";
+
+function IssueDetail({
+  threadId,
+  checkout,
+  issue,
+  index,
+  onSelect,
+  onForm,
+}: {
+  threadId: string;
+  checkout: IssuesCheckout | null;
+  issue: BdIssueNode;
+  index: IssueIndex;
+  onSelect: (id: string) => void;
+  onForm: (target: FormTarget) => void;
+}) {
+  const { show, query } = useIssueShow(threadId, issue.id);
   const [copied, setCopied] = useState(false);
   // A virtual document at the checkout root, so bb resolves relative image
   // sources and file links (`assets/x.png`, `docs/spec.md`) against the project.
@@ -611,6 +626,22 @@ function IssueDetail({
             <Copy className="h-3 w-3" />
           </button>
           {copied && <span className="font-sans">Copied</span>}
+          <span className="flex-1" />
+          <span className="flex items-center gap-0.5 font-sans">
+            {issue.type === "epic" && (
+              <button
+                className={GHOST_BUTTON}
+                onClick={() => onForm({ kind: "create", parent: issue.id })}
+              >
+                <Plus className="h-3 w-3" />
+                Sub-issue
+              </button>
+            )}
+            <button className={GHOST_BUTTON} onClick={() => onForm({ kind: "edit", id: issue.id })}>
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+          </span>
         </div>
         <h2 className="mt-0.5 text-[15px] font-semibold leading-snug text-foreground [text-wrap:pretty]">
           {issue.title}
@@ -801,7 +832,739 @@ function IssueDetail({
 }
 
 // ---------------------------------------------------------------------------
+// Issue form: one form, two variants. Create starts from an empty draft
+// (optionally under a parent); edit starts from the issue as loaded once.
+
+type FormTarget = { kind: "create"; parent: string | null } | { kind: "edit"; id: string };
+
+const STATUS_OPTIONS = ["open", "in_progress", "blocked", "deferred", "closed"];
+const TYPE_OPTIONS = ["task", "bug", "feature", "epic", "chore", "story", "spike", "decision", "milestone"];
+
+function withCurrent(options: string[], current: string): string[] {
+  return options.includes(current) ? options : [...options, current];
+}
+
+function emptyDraft(parent: BdIssueNode | undefined): IssueDraft {
+  return {
+    title: "",
+    description: "",
+    type: "task",
+    status: "open",
+    priority: 2,
+    parent: parent?.id ?? null,
+    // bd would inherit these; showing them lets the user drop one.
+    labels: parent?.labels ?? [],
+    blockedBy: [],
+    blocks: [],
+    acceptance: "",
+    design: "",
+    notes: "",
+  };
+}
+
+function draftFromIssue(issue: BdIssueNode, show: IssueShow, index: IssueIndex): IssueDraft {
+  return {
+    title: issue.title,
+    description: show.description ?? "",
+    type: issue.type,
+    status: issue.status,
+    priority: issue.priority,
+    parent: issue.parent,
+    labels: issue.labels,
+    blockedBy: issue.blockedBy,
+    blocks: (index.blocks.get(issue.id) ?? []).map((dep) => dep.id),
+    acceptance: show.acceptance_criteria ?? "",
+    design: show.design ?? "",
+    notes: show.notes ?? "",
+  };
+}
+
+function sameDraft(a: IssueDraft, b: IssueDraft): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function subtreeIds(id: string, index: IssueIndex): Set<string> {
+  const ids = new Set([id]);
+  const walk = (parentId: string): void => {
+    for (const kid of index.children.get(parentId) ?? []) {
+      ids.add(kid.id);
+      walk(kid.id);
+    }
+  };
+  walk(id);
+  return ids;
+}
+
+const FIELD_CLASS =
+  "w-full resize-none rounded-md border border-border bg-transparent px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none [field-sizing:content] placeholder:text-subtle-foreground focus:border-ring";
+
+const GHOST_BUTTON =
+  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring";
+
+// A property chip that is also a native select: the detail header's chip
+// visuals with the platform's picker and keyboard behaviour.
+function ChipSelect({
+  label,
+  value,
+  options,
+  optionLabel,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  optionLabel: (option: string) => string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className="relative inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-full border border-border bg-surface-raised pl-2 pr-1.5 text-2xs text-foreground hover:bg-surface-recessed focus-within:ring-1 focus-within:ring-ring"
+      title={label}
+    >
+      {children}
+      <ChevronDown className="h-2.5 w-2.5 text-subtle-foreground" />
+      <select
+        aria-label={label}
+        className="absolute inset-0 cursor-pointer opacity-0"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {optionLabel(option)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function IssuePicker({
+  index,
+  exclude,
+  epicsFirst = false,
+  placeholder,
+  onPick,
+  onClose,
+}: {
+  index: IssueIndex;
+  exclude: ReadonlySet<string>;
+  epicsFirst?: boolean;
+  placeholder: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const needle = query.trim().toLowerCase();
+  const matches = [...index.byId.values()]
+    .filter(
+      (issue) =>
+        !exclude.has(issue.id) &&
+        (needle === "" ||
+          issue.title.toLowerCase().includes(needle) ||
+          issue.id.toLowerCase().includes(needle)),
+    )
+    .sort(
+      (a, b) =>
+        (epicsFirst ? Number(b.type === "epic") - Number(a.type === "epic") : 0) ||
+        compareIssues(a, b),
+    )
+    .slice(0, 50);
+  const current = Math.min(active, Math.max(0, matches.length - 1));
+  const pick = (id: string): void => {
+    onPick(id);
+    onClose();
+  };
+  return (
+    <div className="mt-1 overflow-hidden rounded-md border border-border bg-surface-raised shadow-[0_4px_12px_-4px_rgb(0_0_0/0.18)]">
+      <input
+        autoFocus
+        role="combobox"
+        aria-expanded
+        aria-controls="beads-issue-picker"
+        aria-activedescendant={matches[current] ? `beads-pick-${matches[current].id}` : undefined}
+        className="h-8 w-full border-b border-border bg-transparent px-2.5 text-xs text-foreground outline-none placeholder:text-subtle-foreground"
+        placeholder={placeholder}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setActive(0);
+        }}
+        onBlur={onClose}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            setActive((current + step + matches.length) % Math.max(1, matches.length));
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            const match = matches[current];
+            if (match) pick(match.id);
+          } else if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+      />
+      <div id="beads-issue-picker" role="listbox" className="max-h-52 overflow-y-auto py-1">
+        {matches.length === 0 ? (
+          <p className="px-2.5 py-1.5 text-xs text-subtle-foreground">No matching issues</p>
+        ) : (
+          matches.map((issue, i) => (
+            <div
+              key={issue.id}
+              id={`beads-pick-${issue.id}`}
+              role="option"
+              aria-selected={i === current}
+              className={
+                "mx-1 flex h-7 cursor-pointer items-center gap-1.5 rounded px-1.5 text-xs" +
+                (i === current ? " bg-surface-selected" : "")
+              }
+              // Keep focus in the input so its blur does not close the list first.
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(issue.id)}
+            >
+              <StatusGlyph status={effectiveStatus(issue, index)} size={12} />
+              <TypeGlyph type={issue.type} />
+              <span className="min-w-0 flex-1 truncate text-foreground">{issue.title}</span>
+              <span className="shrink-0 font-mono text-2xs text-subtle-foreground">{issue.id}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IssueRef({
+  id,
+  index,
+  onRemove,
+}: {
+  id: string;
+  index: IssueIndex;
+  onRemove: () => void;
+}) {
+  const issue = index.byId.get(id);
+  return (
+    <div className="group flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs hover:bg-surface-recessed">
+      {issue !== undefined ? (
+        <>
+          <StatusGlyph status={effectiveStatus(issue, index)} size={12} />
+          <TypeGlyph type={issue.type} />
+          <span className="min-w-0 flex-1 truncate text-foreground" title={`${issue.title} (${id})`}>
+            {issue.title}
+          </span>
+        </>
+      ) : (
+        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">{id}</span>
+      )}
+      <button
+        type="button"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-subtle-foreground opacity-0 outline-none hover:text-foreground focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
+        aria-label={`Remove ${issue?.title ?? id}`}
+        onClick={onRemove}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function RelationField({
+  label,
+  ids,
+  index,
+  exclude,
+  addLabel,
+  onChange,
+}: {
+  label: string;
+  ids: string[];
+  index: IssueIndex;
+  exclude: ReadonlySet<string>;
+  addLabel: string;
+  onChange: (ids: string[]) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  return (
+    <InfoSection
+      label={label}
+      count={ids.length > 0 ? ids.length : undefined}
+      trailing={
+        <button type="button" className={GHOST_BUTTON} onClick={() => setPicking(true)}>
+          <Plus className="h-3 w-3" />
+          Add
+        </button>
+      }
+    >
+      {ids.length === 0 && !picking ? (
+        <p className="text-xs text-subtle-foreground">None</p>
+      ) : (
+        ids.map((id) => (
+          <IssueRef
+            key={id}
+            id={id}
+            index={index}
+            onRemove={() => onChange(ids.filter((other) => other !== id))}
+          />
+        ))
+      )}
+      {picking && (
+        <IssuePicker
+          index={index}
+          exclude={new Set([...exclude, ...ids])}
+          placeholder={addLabel}
+          onPick={(id) => onChange([...ids, id])}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </InfoSection>
+  );
+}
+
+function LabelsField({
+  labels,
+  known,
+  onChange,
+}: {
+  labels: string[];
+  known: string[];
+  onChange: (labels: string[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const add = (raw: string): void => {
+    const label = raw.trim().replace(/,/g, "");
+    if (label !== "" && !labels.includes(label)) onChange([...labels, label]);
+    setText("");
+  };
+  return (
+    <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+      {labels.map((label) => (
+        <span
+          key={label}
+          className="inline-flex items-center gap-0.5 rounded bg-surface-recessed pl-1.5 pr-0.5 text-2xs leading-4 text-muted-foreground"
+        >
+          {label}
+          <button
+            type="button"
+            className="flex h-4 w-4 items-center justify-center rounded outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+            aria-label={`Remove label ${label}`}
+            onClick={() => onChange(labels.filter((other) => other !== label))}
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </span>
+      ))}
+      <input
+        className="h-5 min-w-[6rem] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-subtle-foreground"
+        placeholder={labels.length === 0 ? "Add labels" : "Add"}
+        aria-label="Add label"
+        list="beads-known-labels"
+        value={text}
+        onChange={(event) => {
+          if (event.target.value.endsWith(",")) add(event.target.value);
+          else setText(event.target.value);
+        }}
+        onBlur={() => add(text)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && text.trim() !== "") {
+            event.preventDefault();
+            add(text);
+          } else if (event.key === "Backspace" && text === "" && labels.length > 0) {
+            onChange(labels.slice(0, -1));
+          }
+        }}
+      />
+      <datalist id="beads-known-labels">
+        {known
+          .filter((label) => !labels.includes(label))
+          .map((label) => (
+            <option key={label} value={label} />
+          ))}
+      </datalist>
+    </span>
+  );
+}
+
+function IssueForm({
+  threadId,
+  index,
+  target,
+  initial,
+  revision,
+  onDone,
+  onCancel,
+}: {
+  threadId: string;
+  index: IssueIndex;
+  target: FormTarget;
+  initial: IssueDraft;
+  revision: string | null;
+  onDone: (id: string) => void;
+  onCancel: () => void;
+}) {
+  // Captured once: the issue_show query refetches whenever anything in the
+  // graph changes, and must not overwrite what the user is typing.
+  const [draft, setDraft] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [pickingParent, setPickingParent] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // A partial save moved the issue past this form's starting point.
+  const [stale, setStale] = useState(false);
+  const hasMore = initial.acceptance !== "" || initial.design !== "" || initial.notes !== "";
+  const [showMore, setShowMore] = useState(hasMore);
+  const create = experimental_useRpcMutation({ contract: rpcContract, method: "issue_create" });
+  const update = experimental_useRpcMutation({ contract: rpcContract, method: "issue_update" });
+
+  const editing = target.kind === "edit" ? target.id : null;
+  const set = <K extends keyof IssueDraft>(key: K, value: IssueDraft[K]): void => {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setConfirmDiscard(false);
+  };
+  const dirty = !sameDraft(draft, initial);
+  const pending = create.isPending || update.isPending;
+  const canSubmit =
+    draft.title.trim() !== "" && !pending && !voiceActive && !stale && (editing === null || dirty);
+
+  // An issue cannot sit under itself or its own descendants.
+  const parentExclude = editing !== null ? subtreeIds(editing, index) : new Set<string>();
+  const selfExclude = new Set(editing !== null ? [editing] : []);
+  const parent = draft.parent !== null ? index.byId.get(draft.parent) : undefined;
+  const knownLabels = useMemo(
+    () => [...new Set([...index.byId.values()].flatMap((issue) => issue.labels))].sort(),
+    [index],
+  );
+
+  const submit = async (): Promise<void> => {
+    if (!canSubmit) return;
+    setError(null);
+    try {
+      if (editing === null) {
+        const result = await create.mutate({ threadId, draft });
+        if (result.error !== null || result.id === null) {
+          setError(result.error ?? "bd did not report the new issue's ID.");
+          return;
+        }
+        onDone(result.id);
+      } else {
+        const result = await update.mutate({ threadId, id: editing, revision, before: initial, after: draft });
+        if (result.error !== null) {
+          setError(result.error);
+          setStale(result.partial);
+          return;
+        }
+        onDone(editing);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const verb = editing === null ? "Create issue" : "Save changes";
+  return (
+    <form
+      className="flex h-full flex-col"
+      aria-label={editing === null ? "New issue" : `Edit ${editing}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.defaultPrevented) {
+          event.preventDefault();
+          void submit();
+        } else if (event.key === "Escape" && !event.defaultPrevented) {
+          if (!dirty || confirmDiscard) onCancel();
+          else setConfirmDiscard(true);
+        }
+      }}
+    >
+      <div className="flex h-9 shrink-0 items-center gap-1.5 pl-1.5 pr-3">
+        <button type="button" className={GHOST_BUTTON} onClick={onCancel}>
+          <ChevronLeft className="h-3.5 w-3.5" />
+          Cancel
+        </button>
+        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+          {editing === null ? "New issue" : "Edit issue"}
+        </span>
+        {editing !== null && (
+          <span className="truncate font-mono text-2xs text-subtle-foreground">{editing}</span>
+        )}
+        <span className="flex-1" />
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          title={`${verb} (${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl"}+Enter)`}
+          className="inline-flex h-6 shrink-0 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-default disabled:opacity-40"
+        >
+          {pending ? (editing === null ? "Creating…" : "Saving…") : verb}
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-4 px-3.5 pb-6 pt-2">
+          {(error !== null || confirmDiscard) && (
+            <p
+              role={error !== null ? "alert" : "status"}
+              className="whitespace-pre-wrap rounded-md px-2.5 py-1.5 text-xs"
+              style={
+                error !== null
+                  ? {
+                      color: "var(--destructive-text)",
+                      background: "color-mix(in oklab, var(--destructive-text) 12%, transparent)",
+                    }
+                  : { color: "var(--muted-foreground)", background: "var(--surface-recessed)" }
+              }
+            >
+              {error ?? "Unsaved changes. Press Esc again to discard them."}
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <input
+              autoFocus
+              aria-label="Title"
+              className="w-full bg-transparent text-[15px] font-semibold leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-subtle-foreground"
+              placeholder="Issue title"
+              value={draft.title}
+              onChange={(event) => set("title", event.target.value)}
+            />
+            <VoiceInputTextarea
+              aria-label="Description"
+              className={FIELD_CLASS + " min-h-[6.5rem]"}
+              placeholder="Add a description. Markdown works."
+              value={draft.description}
+              onValueChange={(value) => set("description", value)}
+              onVoiceInputActiveChange={setVoiceActive}
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-1">
+            <ChipSelect
+              label="Status"
+              value={draft.status}
+              options={withCurrent(STATUS_OPTIONS, draft.status)}
+              optionLabel={(option) => STATUS_LABEL[option as Status] ?? option}
+              onChange={(value) => set("status", value)}
+            >
+              <StatusGlyph
+                status={(STATUS_OPTIONS.includes(draft.status) ? draft.status : "open") as Status}
+                size={12}
+              />
+              {STATUS_LABEL[draft.status as Status] ?? draft.status}
+            </ChipSelect>
+            <ChipSelect
+              label="Priority"
+              value={String(draft.priority)}
+              options={["0", "1", "2", "3", "4"]}
+              optionLabel={(option) => `P${option} ${PRIORITY_LABEL[Number(option)]}`}
+              onChange={(value) => set("priority", Number(value))}
+            >
+              <span className="font-semibold" style={{ color: priorityColor(draft.priority) }}>
+                P{draft.priority}
+              </span>
+              {PRIORITY_LABEL[draft.priority]}
+            </ChipSelect>
+            <ChipSelect
+              label="Type"
+              value={draft.type}
+              options={withCurrent(TYPE_OPTIONS, draft.type)}
+              optionLabel={(option) => option}
+              onChange={(value) => set("type", value)}
+            >
+              <TypeGlyph type={draft.type} />
+              {draft.type}
+            </ChipSelect>
+          </div>
+
+          <div>
+            <DetailRow label="Parent" icon="beads/parent">
+              {parent !== undefined || draft.parent !== null ? (
+                <span className="group flex min-w-0 items-center gap-1">
+                  {parent !== undefined && <TypeGlyph type={parent.type} />}
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-left text-foreground underline decoration-border underline-offset-[3px] hover:decoration-foreground"
+                    onClick={() => setPickingParent(true)}
+                  >
+                    {parent?.title ?? draft.parent}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label="Remove parent"
+                    onClick={() => set("parent", null)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-subtle-foreground hover:text-foreground"
+                  onClick={() => setPickingParent(true)}
+                >
+                  Add to an epic or parent…
+                </button>
+              )}
+            </DetailRow>
+            {pickingParent && (
+              <IssuePicker
+                index={index}
+                exclude={new Set([...parentExclude, ...(draft.parent !== null ? [draft.parent] : [])])}
+                epicsFirst
+                placeholder="Search epics and issues"
+                onPick={(id) => {
+                  set("parent", id);
+                  // Mirror bd's label inheritance in a new issue.
+                  const picked = index.byId.get(id);
+                  if (editing === null && picked !== undefined) {
+                    setDraft((current) => ({
+                      ...current,
+                      labels: [...new Set([...current.labels, ...picked.labels])],
+                    }));
+                  }
+                }}
+                onClose={() => setPickingParent(false)}
+              />
+            )}
+            <DetailRow label="Labels" icon="beads/labels">
+              <LabelsField
+                labels={draft.labels}
+                known={knownLabels}
+                onChange={(labels) => set("labels", labels)}
+              />
+            </DetailRow>
+          </div>
+
+          <RelationField
+            label="Blocked by"
+            ids={draft.blockedBy}
+            index={index}
+            exclude={new Set([...selfExclude, ...draft.blocks])}
+            addLabel="Search issues this one waits on"
+            onChange={(ids) => set("blockedBy", ids)}
+          />
+          <RelationField
+            label="Blocks"
+            ids={draft.blocks}
+            index={index}
+            exclude={new Set([...selfExclude, ...draft.blockedBy])}
+            addLabel="Search issues waiting on this one"
+            onChange={(ids) => set("blocks", ids)}
+          />
+
+          {showMore ? (
+            <>
+              <InfoSection label="Acceptance">
+                <VoiceInputTextarea
+                  // Revealed on request: move straight into the first field.
+                  autoFocus={!hasMore}
+                  aria-label="Acceptance criteria"
+                  className={FIELD_CLASS + " min-h-[4.5rem]"}
+                  placeholder="- [ ] What must be true when this is done"
+                  value={draft.acceptance}
+                  onValueChange={(value) => set("acceptance", value)}
+                  onVoiceInputActiveChange={setVoiceActive}
+                />
+              </InfoSection>
+              <InfoSection label="Design">
+                <VoiceInputTextarea
+                  aria-label="Design"
+                  className={FIELD_CLASS + " min-h-[4.5rem]"}
+                  placeholder="Decisions and approach"
+                  value={draft.design}
+                  onValueChange={(value) => set("design", value)}
+                  onVoiceInputActiveChange={setVoiceActive}
+                />
+              </InfoSection>
+              <InfoSection label="Notes">
+                <VoiceInputTextarea
+                  aria-label="Notes"
+                  className={FIELD_CLASS + " min-h-[4.5rem]"}
+                  placeholder="Context for whoever picks this up"
+                  value={draft.notes}
+                  onValueChange={(value) => set("notes", value)}
+                  onVoiceInputActiveChange={setVoiceActive}
+                />
+              </InfoSection>
+            </>
+          ) : (
+            <button type="button" className={GHOST_BUTTON + " -ml-1.5"} onClick={() => setShowMore(true)}>
+              <Plus className="h-3 w-3" />
+              Acceptance, design and notes
+            </button>
+          )}
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function EditIssueForm({
+  threadId,
+  issue,
+  index,
+  onDone,
+  onCancel,
+}: {
+  threadId: string;
+  issue: BdIssueNode;
+  index: IssueIndex;
+  onDone: (id: string) => void;
+  onCancel: () => void;
+}) {
+  const { show, query } = useIssueShow(threadId, issue.id);
+  // Freeze the starting point at first load; later refetches leave the form alone.
+  const [start, setStart] = useState<{ draft: IssueDraft; revision: string | null } | null>(null);
+  if (start === null && show !== null) {
+    setStart({ draft: draftFromIssue(issue, show, index), revision: show.revision ?? null });
+  }
+  if (start === null) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex h-9 shrink-0 items-center pl-1.5">
+          <button type="button" className={GHOST_BUTTON} onClick={onCancel}>
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Cancel
+          </button>
+        </div>
+        <p
+          className={
+            "px-3.5 text-xs " + (query.isLoading ? "text-subtle-foreground" : "text-destructive-text")
+          }
+        >
+          {query.isLoading
+            ? "Loading…"
+            : (query.data?.error ?? query.error?.message ?? "Could not load this issue.")}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <IssueForm
+      threadId={threadId}
+      index={index}
+      target={{ kind: "edit", id: issue.id }}
+      initial={start.draft}
+      revision={start.revision}
+      onDone={onDone}
+      onCancel={onCancel}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Panel
+
+const TOOLBAR_BUTTON =
+  "flex h-6 w-6 items-center justify-center rounded-md text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring";
 
 const SPLIT_MIN = 0.15;
 const SPLIT_MAX = 0.85;
@@ -867,6 +1630,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   const visible = experimental_useTabVisible();
   const layout = parseLayout(useSettings().values?.layout);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormTarget | null>(null);
   const query = experimental_useRpcQuery({
     contract: rpcContract,
     method: "issues_tree",
@@ -884,7 +1648,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       : query.data?.error != null
         ? { text: query.data.error, error: true }
         : index.byId.size === 0
-          ? { text: "No issues found.", error: false }
+          ? { text: "No issues yet. Create one with +.", error: false }
           : null;
 
   const toolbar = (
@@ -892,8 +1656,18 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       <span className="text-xs font-medium text-muted-foreground">Issues</span>
       {query.data !== undefined && <CountPill>{openCount} open</CountPill>}
       <span className="flex-1" />
+      {query.data?.initialized === true && (
+        <button
+          className={TOOLBAR_BUTTON}
+          aria-label="New issue"
+          title="New issue"
+          onClick={() => setForm({ kind: "create", parent: null })}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
       <button
-        className="flex h-6 w-6 items-center justify-center rounded-md text-subtle-foreground hover:bg-surface-recessed hover:text-foreground"
+        className={TOOLBAR_BUTTON}
         aria-label="Refresh"
         title="Refresh"
         onClick={() => void query.refetch()}
@@ -902,6 +1676,37 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       </button>
     </div>
   );
+
+  // The form takes the whole panel in every layout: a side panel is too narrow
+  // to edit beside the list.
+  const editing = form?.kind === "edit" ? index.byId.get(form.id) : undefined;
+  if (form !== null && query.data?.initialized === true && (form.kind === "create" || editing)) {
+    const close = (id: string | null): void => {
+      setForm(null);
+      if (id !== null) setSelectedId(id);
+    };
+    return form.kind === "create" ? (
+      <IssueForm
+        key={`create:${form.parent ?? ""}`}
+        threadId={threadId}
+        index={index}
+        target={form}
+        initial={emptyDraft(form.parent !== null ? index.byId.get(form.parent) : undefined)}
+        revision={null}
+        onDone={close}
+        onCancel={() => close(null)}
+      />
+    ) : (
+      <EditIssueForm
+        key={`edit:${form.id}`}
+        threadId={threadId}
+        issue={editing!}
+        index={index}
+        onDone={close}
+        onCancel={() => close(null)}
+      />
+    );
+  }
 
   if (message !== null) {
     return (
@@ -928,6 +1733,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         issue={selected}
         index={index}
         onSelect={setSelectedId}
+        onForm={setForm}
       />
     ) : (
       <p className="px-3.5 pt-3 text-xs text-subtle-foreground">Select an issue to see its details.</p>

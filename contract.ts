@@ -73,6 +73,29 @@ export type IssuesCheckout = z.infer<typeof issuesCheckout>;
 export const PANEL_LAYOUTS = ["split", "grouped", "drill"] as const;
 export type PanelLayout = (typeof PANEL_LAYOUTS)[number];
 
+// The editable fields of an issue, shared by the create and edit forms. The
+// server turns a draft (or a draft diff) into `bd` argv; the frontend never
+// sends raw arguments.
+const issueDraft = z
+  .object({
+    title: z.string().trim().min(1),
+    description: z.string(),
+    type: z.string().min(1),
+    status: z.string().min(1),
+    priority: z.number().int().min(0).max(4),
+    parent: z.string().min(1).nullable(),
+    labels: z.array(z.string().min(1)),
+    // Issues this one waits on, and issues waiting on this one.
+    blockedBy: z.array(z.string().min(1)),
+    blocks: z.array(z.string().min(1)),
+    acceptance: z.string(),
+    design: z.string(),
+    notes: z.string(),
+  })
+  .strict();
+
+export type IssueDraft = z.infer<typeof issueDraft>;
+
 export const rpcContract = defineRpcContract({
   issues_tree: {
     input: z.object({ threadId: z.string().min(1) }).strict(),
@@ -98,6 +121,30 @@ export const rpcContract = defineRpcContract({
       })
       .strict(),
     tags: () => ["beads:issues"],
+  },
+  issue_create: {
+    input: z.object({ threadId: z.string().min(1), draft: issueDraft }).strict(),
+    output: z.object({ id: z.string().nullable(), error: z.string().nullable() }).strict(),
+  },
+  issue_update: {
+    input: z
+      .object({
+        threadId: z.string().min(1),
+        id: z.string().min(1),
+        // `bd show --json`'s int64 revision, kept as a string; the update is
+        // refused when the issue changed since the form opened.
+        revision: z.string().nullable(),
+        before: issueDraft,
+        after: issueDraft,
+      })
+      .strict(),
+    output: z
+      .object({
+        error: z.string().nullable(),
+        // Earlier steps were written: the form's starting point is stale.
+        partial: z.boolean(),
+      })
+      .strict(),
   },
 });
 

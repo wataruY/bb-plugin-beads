@@ -14,6 +14,7 @@ import {
   PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
+  type IssueDraft,
 } from "./contract.js";
 
 const BD_TIMEOUT_MS = 5 * 60_000;
@@ -24,6 +25,83 @@ interface ThreadEnv {
   hostId: string;
   // Null for the CLI fallback, which runs in a bare shell directory.
   environmentId: string | null;
+}
+
+// `--flag=value` keeps a value starting with `-` from parsing as a flag.
+function createArgs(draft: IssueDraft): string[] {
+  const deps = [
+    ...draft.blockedBy.map((id) => `blocked-by:${id}`),
+    ...draft.blocks.map((id) => `blocks:${id}`),
+  ];
+  return [
+    "create",
+    `--title=${draft.title}`,
+    `--type=${draft.type}`,
+    `--priority=${draft.priority}`,
+    `--status=${draft.status}`,
+    // The form already shows the parent's labels; save exactly what it shows.
+    "--no-inherit-labels",
+    ...(draft.description !== "" ? [`--description=${draft.description}`] : []),
+    ...(draft.parent !== null ? [`--parent=${draft.parent}`] : []),
+    ...(draft.labels.length > 0 ? [`--labels=${draft.labels.join(",")}`] : []),
+    ...(deps.length > 0 ? [`--deps=${deps.join(",")}`] : []),
+    ...(draft.acceptance !== "" ? [`--acceptance=${draft.acceptance}`] : []),
+    ...(draft.design !== "" ? [`--design=${draft.design}`] : []),
+    ...(draft.notes !== "" ? [`--notes=${draft.notes}`] : []),
+    "--silent",
+  ];
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+// One `bd` run per step, in order: field updates, then each dependency edge.
+// Overwriting notes needs --force, which must not also force a status change,
+// so it runs on its own. Only the first update carries the revision guard:
+// every update bumps the revision.
+function updatePlan(
+  id: string,
+  revision: string | null,
+  before: IssueDraft,
+  after: IssueDraft,
+): string[][] {
+  const fields: string[] = [];
+  for (const key of ["title", "description", "acceptance", "design"] as const) {
+    if (before[key] !== after[key]) fields.push(`--${key}=${after[key]}`);
+  }
+  if (before.type !== after.type) fields.push(`--type=${after.type}`);
+  if (before.status !== after.status) fields.push(`--status=${after.status}`);
+  if (before.priority !== after.priority) fields.push(`--priority=${after.priority}`);
+  if (before.parent !== after.parent) fields.push(`--parent=${after.parent ?? ""}`);
+  if (!sameList([...before.labels].sort(), [...after.labels].sort())) {
+    fields.push(`--set-labels=${after.labels.join(",")}`);
+  }
+  const updates = [fields];
+  if (before.notes !== after.notes) {
+    if (after.notes === "") fields.push("--clear-notes");
+    else if (before.notes === "") fields.push(`--notes=${after.notes}`);
+    else updates.push([`--notes=${after.notes}`, "--force"]);
+  }
+  const plan = updates
+    .filter((flags) => flags.length > 0)
+    .map((flags, i) => [
+      "update",
+      id,
+      ...(i === 0 && revision !== null ? [`--if-revision=${revision}`] : []),
+      ...flags,
+    ]);
+  const diff = (from: readonly string[], to: readonly string[]) => ({
+    added: to.filter((x) => !from.includes(x)),
+    removed: from.filter((x) => !to.includes(x)),
+  });
+  const waits = diff(before.blockedBy, after.blockedBy);
+  for (const dep of waits.removed) plan.push(["dep", "remove", id, dep]);
+  for (const dep of waits.added) plan.push(["dep", "add", id, dep]);
+  const holds = diff(before.blocks, after.blocks);
+  for (const dep of holds.removed) plan.push(["dep", "remove", dep, id]);
+  for (const dep of holds.added) plan.push(["dep", "add", dep, id]);
+  return plan;
 }
 
 function truncate(text: string, max: number): string {
@@ -120,6 +198,13 @@ export default async function plugin(bb: BbPluginApi) {
     "No working directory to run `bd` in. Run the command from a BB thread " +
     "(uses the thread's environment checkout) or from inside a project " +
     "directory with `bb beads -- <args...>`.";
+
+  const noEnvError = "This thread has no environment checkout to run `bd` in.";
+
+  function bdFailure(command: string, result: BdRun): string {
+    const stderr = result.stderr.trim();
+    return stderr !== "" ? stderr : `bd ${command} failed (exit ${result.exitCode})`;
+  }
 
   async function runBd(
     args: readonly string[],
@@ -290,7 +375,7 @@ and install beads from https://beads.gascity.com if needed.`,
         return {
           initialized: false,
           issues: [],
-          error: "This thread has no environment checkout to run `bd` in.",
+          error: noEnvError,
           checkout: null,
         };
       }
@@ -352,7 +437,7 @@ and install beads from https://beads.gascity.com if needed.`,
       if (env === null) {
         return {
           json: null,
-          error: "This thread has no environment checkout to run `bd` in.",
+          error: noEnvError,
         };
       }
       const { result, error } = await runBd(["show", id, "--json"], {
@@ -370,6 +455,46 @@ and install beads from https://beads.gascity.com if needed.`,
         };
       }
       return { json: result!.stdout, error: null };
+    },
+    issue_create: async ({ threadId, draft }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) return { id: null, error: noEnvError };
+      const { result, error } = await runBd(createArgs(draft), {
+        threadId,
+        signal: ctx.experimental_signal,
+        env,
+      });
+      if (error !== null) return { id: null, error };
+      if (result!.exitCode !== 0) return { id: null, error: bdFailure("create", result!) };
+      return { id: result!.stdout.trim() || null, error: null };
+    },
+    issue_update: async ({ threadId, id, revision, before, after }, ctx) => {
+      const env = await resolveThreadEnv(threadId);
+      if (env === null) return { error: noEnvError, partial: false };
+      const plan = updatePlan(id, revision, before, after);
+      for (const [step, args] of plan.entries()) {
+        const { result, error } = await runBd(args, {
+          threadId,
+          signal: ctx.experimental_signal,
+          env,
+        });
+        const failure =
+          error ??
+          (result!.exitCode === 13
+            ? "This issue changed since you opened it. Reopen the editor to load the latest version."
+            : result!.exitCode !== 0
+              ? bdFailure(args.slice(0, 2).join(" "), result!)
+              : null);
+        if (failure !== null) {
+          return step === 0
+            ? { error: failure, partial: false }
+            : {
+                error: `Some changes were saved, then this failed:\n${failure}\nReopen the editor to see what was saved.`,
+                partial: true,
+              };
+        }
+      }
+      return { error: null, partial: false };
     },
   });
 

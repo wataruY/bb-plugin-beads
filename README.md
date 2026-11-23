@@ -36,9 +36,10 @@ In a repo without beads yet, run `bb beads -- init --skip-agents
 ## Structure
 
 - `server.ts` — backend entry: agent tool, CLI command, settings, and the
-  side-panel RPC handlers (`issues_tree`, `issue_show`).
+  side-panel RPC handlers (`issues_tree`, `issue_show`, `issue_create`,
+  `issue_update`).
 - `app.tsx` — frontend entry: the Beads issues side-panel tab (issue tree +
-  detail pane).
+  detail pane, and the shared create/edit issue form).
 - `contract.ts` — host, RPC, and CLI contracts (zod-validated).
 - `host.ts` — `bb.host` worker that spawns `bd` (bounded output, timeouts).
 - `skills/beads/SKILL.md` — agent instructions.

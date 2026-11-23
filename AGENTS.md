@@ -26,7 +26,7 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 ## File map
 
 - `server.ts` — backend entry: agent tool, CLI, settings, RPC handlers
-  (`issues_tree`, `issue_show`).
+  (`issues_tree`, `issue_show`, `issue_create`, `issue_update`).
 - `app.tsx` — frontend entry: the side-panel tab (React, bundled by bb).
 - `contract.ts` — zod contracts: host (`bd_run`, `bd_check`), frontend RPC,
   CLI. Keep the RPC node shapes in sync with `bd`'s JSON output.
@@ -35,7 +35,8 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 
 ## Data flow
 
-`app.tsx` → plugin RPC (`issues_tree`/`issue_show`) → `server.ts` →
+`app.tsx` → plugin RPC (`issues_tree`/`issue_show`, writes via
+`issue_create`/`issue_update`) → `server.ts` →
 `bb.hosts` worker (`host.ts`) → `bd` in the thread's environment checkout.
 Successful **mutating** `bd` runs invalidate the `beads:issues` RPC tag so
 every open panel refetches; read-only commands (see `READ_ONLY_BD_COMMANDS`
@@ -74,8 +75,13 @@ bb plugin rpc call beads issues_tree --input-file /tmp/rpc-in.json
   (forwardRef objects are rejected and the whole app registration fails).
 - `bd delete` only prints a preview without `--force`; set an issue's status
   with `bd update <id> --status <s>` (there is no `bd status <id> <s>`).
-- The side panel is **read-only**; mutations go through the agent tool or
-  `bb beads`.
+- The side panel writes only through `issue_create`/`issue_update`: the
+  frontend sends an `IssueDraft` (or before/after drafts), and `server.ts`
+  builds the `bd` argv (`createArgs`, `updatePlan`). Never accept raw argv
+  from the frontend. Pass values as `--flag=value` so text starting with `-`
+  is not read as a flag. Edits pass `--if-revision` (exit 13 = stale);
+  `--notes` over existing notes needs `--force` in its own run, and clearing
+  uses `--clear-notes`.
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6ffdf896 -->
 ## Beads Issue Tracker
 

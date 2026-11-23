@@ -42,7 +42,8 @@ A **Beads issues** tab in the thread side panel (thread menu → "Beads issues")
 shows the issue tree of the thread's checkout: status dots, priorities,
 types, and a detail pane (description, dependencies, timestamps). It refreshes
 automatically after any mutating `bd` command (agent tool or CLI) succeeds.
-It is read-only; make changes through the agent tool or `bb beads`.
+Users can also create issues (+ in the toolbar) and edit them (Edit in the
+detail header) from the panel; those writes refresh the tree the same way.
 
 ## Setup
 
