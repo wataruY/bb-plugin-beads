@@ -10,6 +10,7 @@ import {
   experimental_useRpcMutation,
   experimental_useRpcQuery,
   experimental_useCodeTheme,
+  experimental_usePluginId,
   experimental_useTabVisible,
   experimental_VoiceInputTextarea as VoiceInputTextarea,
   Markdown,
@@ -28,6 +29,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Tag,
   Timer,
   User,
@@ -35,14 +37,33 @@ import {
 } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DETAIL_MODES,
+  LIST_VIEWS,
   MAX_ATTACHMENT_BYTES,
-  PANEL_LAYOUTS,
   rpcContract,
   type BdIssueNode,
+  type DetailMode,
   type IssueDraft,
   type IssuesCheckout,
-  type PanelLayout,
+  type ListView,
 } from "./contract.js";
+import {
+  buildIndex,
+  compareIssues,
+  countByStatus,
+  effectiveStatus,
+  filterIssues,
+  matchRanges,
+  matchesQuery,
+  parseViewPrefs,
+  queryActive,
+  shortId,
+  STATUSES,
+  type IssueFilter,
+  type IssueIndex,
+  type Status,
+  type ViewPrefs,
+} from "./filter.js";
 
 type IssueShow = {
   id: string;
@@ -57,68 +78,6 @@ type IssueShow = {
   revision?: string;
 };
 
-// ---------------------------------------------------------------------------
-// Domain model: one index over the `issues_tree` rows, shared by every layout
-// and by the detail pane's relation lists.
-
-type Status = "open" | "in_progress" | "blocked" | "deferred" | "closed";
-
-type IssueIndex = {
-  byId: Map<string, BdIssueNode>;
-  roots: BdIssueNode[];
-  children: Map<string, BdIssueNode[]>;
-  // Reverse of `blockedBy`: issue id -> the issues waiting on it.
-  blocks: Map<string, BdIssueNode[]>;
-  // Labels every issue carries say nothing in a row; show them only in detail.
-  sharedLabels: Set<string>;
-};
-
-function compareIssues(a: BdIssueNode, b: BdIssueNode): number {
-  return (
-    Number(a.status === "closed") - Number(b.status === "closed") ||
-    a.priority - b.priority ||
-    a.title.localeCompare(b.title)
-  );
-}
-
-function buildIndex(issues: BdIssueNode[]): IssueIndex {
-  const byId = new Map(issues.map((issue) => [issue.id, issue]));
-  const roots: BdIssueNode[] = [];
-  const children = new Map<string, BdIssueNode[]>();
-  const blocks = new Map<string, BdIssueNode[]>();
-  const push = (map: Map<string, BdIssueNode[]>, key: string, issue: BdIssueNode): void => {
-    const list = map.get(key);
-    if (list) list.push(issue);
-    else map.set(key, [issue]);
-  };
-  for (const issue of issues) {
-    if (issue.parent !== null && byId.has(issue.parent)) push(children, issue.parent, issue);
-    else roots.push(issue);
-    for (const target of issue.blockedBy) push(blocks, target, issue);
-  }
-  roots.sort(compareIssues);
-  for (const list of children.values()) list.sort(compareIssues);
-  for (const list of blocks.values()) list.sort(compareIssues);
-  const sharedLabels = new Set(issues[0]?.labels ?? []);
-  for (const issue of issues) {
-    for (const label of sharedLabels) {
-      if (!issue.labels.includes(label)) sharedLabels.delete(label);
-    }
-  }
-  if (issues.length < 2) sharedLabels.clear();
-  return { byId, roots, children, blocks, sharedLabels };
-}
-
-function effectiveStatus(issue: BdIssueNode, index: IssueIndex): Status {
-  if (issue.status === "closed") return "closed";
-  const waiting = issue.blockedBy.some(
-    (id) => (index.byId.get(id)?.status ?? "open") !== "closed",
-  );
-  if (waiting || issue.status === "blocked") return "blocked";
-  if (issue.status === "in_progress" || issue.status === "deferred") return issue.status;
-  return "open";
-}
-
 function descendantProgress(id: string, index: IssueIndex): { done: number; total: number } {
   let done = 0;
   let total = 0;
@@ -131,10 +90,6 @@ function descendantProgress(id: string, index: IssueIndex): { done: number; tota
   };
   walk(id);
   return { done, total };
-}
-
-function parseLayout(value: unknown): PanelLayout {
-  return PANEL_LAYOUTS.find((layout) => layout === value) ?? "split";
 }
 
 // ---------------------------------------------------------------------------
@@ -279,19 +234,63 @@ function CountPill({ children }: { children: React.ReactNode }) {
 // Touch sizing: `pointer-coarse:` follows the input device, not the viewport, so a
 // phone gets 44px targets and a mouse keeps the dense desktop rhythm.
 const ROW_BASE =
-  "mx-1.5 flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:mx-2 pointer-coarse:h-11 pointer-coarse:gap-2 pointer-coarse:pr-3 pointer-coarse:text-[13px]";
+  "relative mx-1.5 flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:mx-2 pointer-coarse:h-11 pointer-coarse:gap-2 pointer-coarse:pr-3 pointer-coarse:text-[13px]";
 
 // Safe-area aware bottom padding for scroll content on notched phones.
 const SCROLL_END = "pb-[max(1.5rem,env(safe-area-inset-bottom))]";
+
+// The short id drawn over the right end of a row (over its meta), so turning
+// ids on never moves or re-truncates the title. Not a tap target of its own.
+// The panel sits on --sidebar; --surface-raised is translucent, so the tag
+// lays it over an opaque --sidebar base and haloes in the same colour.
+const ID_TAG_STYLE: CSSProperties = {
+  background: "linear-gradient(var(--surface-raised), var(--surface-raised)), var(--sidebar)",
+  boxShadow: "0 0 0 4px var(--sidebar)",
+};
+
+function IdTag({ id }: { id: string }) {
+  return (
+    <span
+      className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-border px-1.5 font-mono text-xs leading-4 text-foreground"
+      style={ID_TAG_STYLE}
+    >
+      {id}
+    </span>
+  );
+}
+
+const MATCH_STYLE: CSSProperties = {
+  background: "color-mix(in oklch, var(--warning) 30%, transparent)",
+  color: "inherit",
+  borderRadius: 2,
+};
+
+function Highlighted({ text, query }: { text: string; query: string }) {
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of matchRanges(text, query)) {
+    parts.push(text.slice(at, start), <mark key={start} style={MATCH_STYLE}>{text.slice(start, end)}</mark>);
+    at = end;
+  }
+  parts.push(text.slice(at));
+  return <>{parts}</>;
+}
 
 function IssueRowContent({
   issue,
   index,
   showParent,
+  showId,
+  query,
+  dimmed = false,
 }: {
   issue: BdIssueNode;
   index: IssueIndex;
   showParent: boolean;
+  showId: boolean;
+  query: string;
+  // A context row: shown only because a descendant is.
+  dimmed?: boolean;
 }) {
   const status = effectiveStatus(issue, index);
   const progress = descendantProgress(issue.id, index);
@@ -305,12 +304,12 @@ function IssueRowContent({
       <span
         className={
           "min-w-0 flex-1 truncate " +
-          (status === "closed" ? "text-subtle-foreground" : "text-foreground") +
+          (status === "closed" || dimmed ? "text-subtle-foreground" : "text-foreground") +
           (progress.total > 0 ? " font-medium" : "")
         }
         title={issue.title}
       >
-        {issue.title}
+        <Highlighted text={issue.title} query={query} />
       </span>
       {parentTitle !== undefined && (
         <span className="min-w-0 max-w-[40%] shrink truncate text-xs text-subtle-foreground">
@@ -340,26 +339,45 @@ function IssueRowContent({
           P{issue.priority}
         </span>
       )}
+      {showId && <IdTag id={shortId(issue.id, index.issuePrefix)} />}
     </>
   );
 }
 
+function shownIn(filter: IssueFilter, issues: BdIssueNode[]): BdIssueNode[] {
+  return issues.filter((issue) => filter.matches.has(issue.id) || filter.context.has(issue.id));
+}
+
+// What every list view renders from.
+type ListProps = {
+  index: IssueIndex;
+  filter: IssueFilter;
+  // The search query, for highlighting matched title text.
+  query: string;
+  showIds: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+};
+
 function TreeRow({
   issue,
   depth,
-  index,
-  selectedId,
-  onSelect,
+  list,
+  isOpen,
+  setOpen,
 }: {
   issue: BdIssueNode;
   depth: number;
-  index: IssueIndex;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  list: ListProps;
+  isOpen: (id: string) => boolean;
+  // Null while a search forces every branch open.
+  setOpen: ((id: string, open: boolean) => void) | null;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const kids = index.children.get(issue.id) ?? [];
+  const { index, filter, selectedId, onSelect } = list;
+  const kids = shownIn(filter, index.children.get(issue.id) ?? []);
+  const expanded = isOpen(issue.id);
   const selected = selectedId === issue.id;
+  const dimmed = filter.context.has(issue.id);
   return (
     <>
       <div
@@ -367,23 +385,28 @@ function TreeRow({
         aria-selected={selected}
         aria-expanded={kids.length > 0 ? expanded : undefined}
         tabIndex={0}
-        className={ROW_BASE + (selected ? " bg-surface-selected" : " hover:bg-surface-recessed")}
+        className={
+          ROW_BASE +
+          (selected ? " bg-surface-selected" : " hover:bg-surface-recessed") +
+          (dimmed ? " opacity-75" : "")
+        }
         style={{ paddingLeft: `calc(${depth} * var(--beads-indent, 16px) + 2px)` }}
         onClick={() => onSelect(issue.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter") onSelect(issue.id);
-          else if (event.key === "ArrowRight" && kids.length > 0) setExpanded(true);
-          else if (event.key === "ArrowLeft" && kids.length > 0) setExpanded(false);
+          else if (event.key === "ArrowRight" && kids.length > 0) setOpen?.(issue.id, true);
+          else if (event.key === "ArrowLeft" && kids.length > 0) setOpen?.(issue.id, false);
         }}
       >
         {kids.length > 0 ? (
           <button
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-subtle-foreground hover:text-foreground pointer-coarse:-my-2 pointer-coarse:h-11 pointer-coarse:w-9 pointer-coarse:-ml-1.5"
+            className="flex h-4 w-4 shrink-0 items-center justify-center text-subtle-foreground hover:text-foreground disabled:hover:text-subtle-foreground pointer-coarse:-my-2 pointer-coarse:h-11 pointer-coarse:w-9 pointer-coarse:-ml-1.5"
             aria-label={expanded ? "Collapse" : "Expand"}
             tabIndex={-1}
+            disabled={setOpen === null}
             onClick={(event) => {
               event.stopPropagation();
-              setExpanded(!expanded);
+              setOpen?.(issue.id, !expanded);
             }}
           >
             {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -391,7 +414,14 @@ function TreeRow({
         ) : (
           <span className="w-4 shrink-0 pointer-coarse:w-7" />
         )}
-        <IssueRowContent issue={issue} index={index} showParent={false} />
+        <IssueRowContent
+          issue={issue}
+          index={index}
+          showParent={false}
+          showId={list.showIds}
+          query={list.query}
+          dimmed={dimmed}
+        />
       </div>
       {expanded &&
         kids.map((kid) => (
@@ -399,50 +429,59 @@ function TreeRow({
             key={kid.id}
             issue={kid}
             depth={depth + 1}
-            index={index}
-            selectedId={selectedId}
-            onSelect={onSelect}
+            list={list}
+            isOpen={isOpen}
+            setOpen={setOpen}
           />
         ))}
     </>
   );
 }
 
-function IssueTree(props: {
-  index: IssueIndex;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
+// Expand state lives here, not in the rows: a search unmounts rows it hides,
+// and clearing it must bring back what the user had collapsed.
+function IssueTree(list: ListProps) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const searching = queryActive(list.query);
+  const setOpen = (id: string, open: boolean): void => {
+    const next = new Set(collapsed);
+    if (open) next.delete(id);
+    else next.add(id);
+    setCollapsed(next);
+  };
   return (
     <div role="tree" aria-label="Issues" className="py-1 [--beads-indent:16px] pointer-coarse:[--beads-indent:14px]">
-      {props.index.roots.map((root) => (
-        <TreeRow key={root.id} issue={root} depth={0} {...props} />
+      {shownIn(list.filter, list.index.roots).map((root) => (
+        <TreeRow
+          key={root.id}
+          issue={root}
+          depth={0}
+          list={list}
+          isOpen={searching ? () => true : (id) => !collapsed.has(id)}
+          setOpen={searching ? null : setOpen}
+        />
       ))}
     </div>
   );
 }
 
 // Workflow-state groups: what is moving, what is stuck, what can be picked up.
-const GROUPS: { status: Status; label: string; collapsedByDefault: boolean }[] = [
-  { status: "in_progress", label: "In progress", collapsedByDefault: false },
-  { status: "blocked", label: "Blocked", collapsedByDefault: false },
-  { status: "open", label: "Ready", collapsedByDefault: false },
-  { status: "deferred", label: "Deferred", collapsedByDefault: true },
-  { status: "closed", label: "Closed", collapsedByDefault: true },
+// A hidden status has no matches, so its group does not render; a group the
+// user chose to show starts expanded.
+const GROUPS: { status: Status; label: string }[] = [
+  { status: "in_progress", label: "In progress" },
+  { status: "blocked", label: "Blocked" },
+  { status: "open", label: "Ready" },
+  { status: "deferred", label: "Deferred" },
+  { status: "closed", label: "Closed" },
 ];
 
-function GroupedList({
-  index,
-  selectedId,
-  onSelect,
-}: {
-  index: IssueIndex;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  const [toggled, setToggled] = useState<Set<Status>>(new Set());
+function GroupedList({ index, filter, query, showIds, selectedId, onSelect }: ListProps) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<Status>>(new Set());
   // Epics are containers, not work items; their children carry them as a crumb.
-  const items = [...index.byId.values()].filter((issue) => issue.type !== "epic");
+  const items = [...filter.matches]
+    .map((id) => index.byId.get(id)!)
+    .filter((issue) => issue.type !== "epic");
   return (
     <div className="py-1">
       {GROUPS.map((group) => {
@@ -450,17 +489,17 @@ function GroupedList({
           .filter((issue) => effectiveStatus(issue, index) === group.status)
           .sort(compareIssues);
         if (members.length === 0) return null;
-        const collapsed = group.collapsedByDefault !== toggled.has(group.status);
+        const collapsed = collapsedGroups.has(group.status);
         return (
           <section key={group.status}>
             <button
               className="flex w-full items-center gap-1.5 px-3 pb-1 pt-2.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:px-4 pointer-coarse:py-0"
               aria-expanded={!collapsed}
               onClick={() => {
-                const next = new Set(toggled);
+                const next = new Set(collapsedGroups);
                 if (next.has(group.status)) next.delete(group.status);
                 else next.add(group.status);
-                setToggled(next);
+                setCollapsedGroups(next);
               }}
             >
               {group.label}
@@ -483,12 +522,167 @@ function GroupedList({
                     if (event.key === "Enter") onSelect(issue.id);
                   }}
                 >
-                  <IssueRowContent issue={issue} index={index} showParent />
+                  <IssueRowContent
+                    issue={issue}
+                    index={index}
+                    showParent
+                    showId={showIds}
+                    query={query}
+                  />
                 </div>
               ))}
           </section>
         );
       })}
+    </div>
+  );
+}
+
+// The status summary doubles as the status filter: each chip toggles its
+// status. A hidden chip is dashed and faint, so the state never rests on
+// colour alone.
+function StatusChips({
+  counts,
+  hidden,
+  onToggle,
+}: {
+  counts: Record<Status, number>;
+  hidden: readonly Status[];
+  onToggle: (status: Status) => void;
+}) {
+  return (
+    <div role="group" aria-label="Show statuses" className="flex shrink-0 flex-wrap gap-1 px-3 pb-1.5 pointer-coarse:px-4">
+      {STATUSES.map((status) => {
+        const shown = !hidden.includes(status);
+        return (
+          <button
+            key={status}
+            aria-pressed={shown}
+            aria-label={`${STATUS_LABEL[status]}, ${counts[status]}, ${shown ? "shown" : "hidden"}`}
+            title={`${shown ? "Hide" : "Show"} ${STATUS_LABEL[status].toLowerCase()}`}
+            className="group flex h-7 items-center outline-none pointer-coarse:h-11"
+            onClick={() => onToggle(status)}
+          >
+            <span
+              className={
+                "flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs tabular-nums group-hover:bg-surface-recessed group-focus-visible:ring-1 group-focus-visible:ring-ring pointer-coarse:px-2.5 pointer-coarse:text-[13px] " +
+                (shown ? "text-foreground" : "border-dashed text-subtle-foreground opacity-70")
+              }
+            >
+              <StatusGlyph status={status} size={13} />
+              {counts[status]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Under the list: what the query matched and what the status chips hide
+// ('2 matches · 1 more in closed · Show', or '6 closed hidden · Show' with no
+// query). Show un-hides the statuses that hide something.
+function ListNote({
+  filter,
+  query,
+  onShow,
+}: {
+  filter: IssueFilter;
+  query: string;
+  onShow: (statuses: Status[]) => void;
+}) {
+  const hidden = STATUSES.filter((status) => filter.hiddenByStatus[status] > 0);
+  const hiddenTotal = hidden.reduce((sum, status) => sum + filter.hiddenByStatus[status], 0);
+  const label = (status: Status): string => STATUS_LABEL[status].toLowerCase();
+  let text: string;
+  if (!queryActive(query)) {
+    if (hidden.length === 0) return null;
+    text = `${hidden.map((status) => `${filter.hiddenByStatus[status]} ${label(status)}`).join(", ")} hidden`;
+  } else {
+    const count = filter.matches.size;
+    text = count === 0 ? "No matches." : `${count} ${count === 1 ? "match" : "matches"}`;
+    if (hidden.length > 0) text += ` · ${hiddenTotal} more in ${hidden.map(label).join(", ")}`;
+  }
+  return (
+    <p className="flex flex-wrap items-center gap-1 px-3 py-1.5 text-xs text-subtle-foreground pointer-coarse:px-4 pointer-coarse:text-[13px]">
+      {text}
+      {hidden.length > 0 && (
+        <>
+          {" "}·
+          <button
+            className="rounded text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:px-1"
+            onClick={() => onShow(hidden)}
+          >
+            Show
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+// '/' focuses the field when focus is not in a text field (and bb did not
+// take the key); Esc clears the query, a second Esc leaves the field.
+function SearchField({
+  value,
+  active,
+  onChange,
+}: {
+  value: string;
+  // The panel tab is visible.
+  active: boolean;
+  onChange: (value: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "/" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return;
+      event.preventDefault();
+      input.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active]);
+  return (
+    <div className="shrink-0 px-3 pb-1.5 pointer-coarse:px-4">
+      <div className="flex h-8 items-center gap-1.5 rounded-md border border-border pl-2.5 text-subtle-foreground focus-within:border-ring pointer-coarse:h-11 pointer-coarse:pl-3">
+        <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <input
+          ref={input}
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          aria-label="Search issues"
+          placeholder="Search id, title, #label"
+          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:text-base"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            if (value !== "") onChange("");
+            else event.currentTarget.blur();
+          }}
+        />
+        {value !== "" ? (
+          <button
+            className="flex h-full w-8 shrink-0 items-center justify-center rounded-r-md outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11"
+            aria-label="Clear search"
+            title="Clear search"
+            onClick={() => {
+              onChange("");
+              input.current?.focus();
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <span className="w-2.5 shrink-0" />
+        )}
+      </div>
     </div>
   );
 }
@@ -510,10 +704,12 @@ function Chip({ children, style }: { children: React.ReactNode; style?: CSSPrope
 function RelationList({
   issues,
   index,
+  showIds,
   onSelect,
 }: {
   issues: BdIssueNode[];
   index: IssueIndex;
+  showIds: boolean;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -521,23 +717,26 @@ function RelationList({
       items={issues}
       getKey={(issue) => issue.id}
       renderItem={(issue) => (
-        <InfoListRow
-          leading={<StatusGlyph status={effectiveStatus(issue, index)} size={12} />}
-          leadingLabel={STATUS_LABEL[effectiveStatus(issue, index)]}
-          name={issue.title}
-          title={`${issue.title} (${issue.id})`}
-          trailing={
-            issue.priority <= 1 ? (
-              <span
-                className="text-xs font-semibold tabular-nums"
-                style={{ color: priorityColor(issue.priority) }}
-              >
-                P{issue.priority}
-              </span>
-            ) : undefined
-          }
-          onSelect={() => onSelect(issue.id)}
-        />
+        <div className="relative">
+          <InfoListRow
+            leading={<StatusGlyph status={effectiveStatus(issue, index)} size={12} />}
+            leadingLabel={STATUS_LABEL[effectiveStatus(issue, index)]}
+            name={issue.title}
+            title={`${issue.title} (${issue.id})`}
+            trailing={
+              issue.priority <= 1 ? (
+                <span
+                  className="text-xs font-semibold tabular-nums"
+                  style={{ color: priorityColor(issue.priority) }}
+                >
+                  P{issue.priority}
+                </span>
+              ) : undefined
+            }
+            onSelect={() => onSelect(issue.id)}
+          />
+          {showIds && <IdTag id={shortId(issue.id, index.issuePrefix)} />}
+        </div>
       )}
     />
   );
@@ -588,6 +787,7 @@ function IssueDetail({
   checkout,
   issue,
   index,
+  showIds,
   onSelect,
   onForm,
 }: {
@@ -595,6 +795,7 @@ function IssueDetail({
   checkout: IssuesCheckout | null;
   issue: BdIssueNode;
   index: IssueIndex;
+  showIds: boolean;
   onSelect: (id: string) => void;
   onForm: (target: FormTarget) => void;
 }) {
@@ -818,17 +1019,17 @@ function IssueDetail({
             </span>
           }
         >
-          <RelationList issues={kids} index={index} onSelect={onSelect} />
+          <RelationList issues={kids} index={index} showIds={showIds} onSelect={onSelect} />
         </InfoSection>
       )}
       {blockedBy.length > 0 && (
         <InfoSection label="Blocked by" count={blockedBy.length}>
-          <RelationList issues={blockedBy} index={index} onSelect={onSelect} />
+          <RelationList issues={blockedBy} index={index} showIds={showIds} onSelect={onSelect} />
         </InfoSection>
       )}
       {blocks.length > 0 && (
         <InfoSection label="Blocks" count={blocks.length}>
-          <RelationList issues={blocks} index={index} onSelect={onSelect} />
+          <RelationList issues={blocks} index={index} showIds={showIds} onSelect={onSelect} />
         </InfoSection>
       )}
 
@@ -970,15 +1171,8 @@ function IssuePicker({
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const needle = query.trim().toLowerCase();
   const matches = [...index.byId.values()]
-    .filter(
-      (issue) =>
-        !exclude.has(issue.id) &&
-        (needle === "" ||
-          issue.title.toLowerCase().includes(needle) ||
-          issue.id.toLowerCase().includes(needle)),
-    )
+    .filter((issue) => !exclude.has(issue.id) && matchesQuery(issue, query))
     .sort(
       (a, b) =>
         (epicsFirst ? Number(b.type === "epic") - Number(a.type === "epic") : 0) ||
@@ -1043,7 +1237,9 @@ function IssuePicker({
               <StatusGlyph status={effectiveStatus(issue, index)} size={12} />
               <TypeGlyph type={issue.type} />
               <span className="min-w-0 flex-1 truncate text-foreground">{issue.title}</span>
-              <span className="shrink-0 font-mono text-xs text-subtle-foreground">{issue.id}</span>
+              <span className="shrink-0 font-mono text-xs text-subtle-foreground">
+                {shortId(issue.id, index.issuePrefix)}
+              </span>
             </div>
           ))
         )}
@@ -2038,11 +2234,80 @@ function useCoarsePointer(): boolean {
   return coarse;
 }
 
+type ViewSettings = { listView: ListView; detailMode: DetailMode };
+
+function pickOption<T extends string>(options: readonly [T, ...T[]], value: unknown): T {
+  return options.find((option) => option === value) ?? options[0];
+}
+
+// listView and detailMode are plugin settings, so the settings page and the
+// panel agree. A change made here shows at once and holds until useSettings
+// reports the same value; a failed write rolls it back with an error.
+function useViewSettings() {
+  const values = useSettings().values;
+  const saved: ViewSettings = {
+    listView: pickOption(LIST_VIEWS, values?.listView),
+    detailMode: pickOption(DETAIL_MODES, values?.detailMode),
+  };
+  const [pending, setPending] = useState<Partial<ViewSettings>>({});
+  const [error, setError] = useState<string | null>(null);
+  const write = experimental_useRpcMutation({ contract: rpcContract, method: "settings_set" });
+  const dropWhere = (matches: (key: keyof ViewSettings, value: string) => boolean): void =>
+    setPending((current) => {
+      const kept = Object.entries(current).filter(
+        ([key, value]) => !matches(key as keyof ViewSettings, value),
+      );
+      return kept.length === Object.keys(current).length ? current : Object.fromEntries(kept);
+    });
+  useEffect(() => {
+    dropWhere((key, value) => saved[key] === value);
+  }, [saved.listView, saved.detailMode]);
+  const set = (patch: Partial<ViewSettings>): void => {
+    setError(null);
+    setPending((current) => ({ ...current, ...patch }));
+    void write.mutate(patch).then(
+      (result) => result.error,
+      (failure: unknown) => (failure instanceof Error ? failure.message : String(failure)),
+    ).then((failure) => {
+      if (failure === null) return;
+      dropWhere((key, value) => patch[key] === value);
+      setError(failure);
+    });
+  };
+  return { ...saved, ...pending, set, error };
+}
+
+// hiddenStatuses and showIds belong to this device, not to the settings page.
+// Storage that throws (blocked or full) keeps the choice for this session only.
+function useViewPrefs(): [ViewPrefs, (next: ViewPrefs) => void] {
+  const key = `${experimental_usePluginId()}:view`;
+  const [prefs, setPrefs] = useState(() => {
+    try {
+      return parseViewPrefs(localStorage.getItem(key));
+    } catch {
+      return parseViewPrefs(null);
+    }
+  });
+  const save = (next: ViewPrefs): void => {
+    setPrefs(next);
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // Not persisted.
+    }
+  };
+  return [prefs, save];
+}
+
 function BeadsPanel({ threadId }: { threadId: string }) {
   const visible = experimental_useTabVisible();
   const coarse = useCoarsePointer();
-  const configured = parseLayout(useSettings().values?.layout);
-  const layout: PanelLayout = coarse ? "drill" : configured;
+  const view = useViewSettings();
+  const [prefs, setPrefs] = useViewPrefs();
+  // Not persisted.
+  const [search, setSearch] = useState("");
+  // A phone has no room for the detail beside the list.
+  const drill = coarse || view.detailMode === "drill";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormTarget | null>(null);
   const query = experimental_useRpcQuery({
@@ -2051,7 +2316,17 @@ function BeadsPanel({ threadId }: { threadId: string }) {
     input: { threadId },
     enabled: visible,
   });
-  const index = useMemo(() => buildIndex(query.data?.issues ?? []), [query.data?.issues]);
+  const index = useMemo(
+    () => buildIndex(query.data?.issues ?? [], query.data?.issuePrefix ?? null),
+    [query.data?.issues, query.data?.issuePrefix],
+  );
+  const counts = useMemo(() => countByStatus(index), [index]);
+  const filter = useMemo(
+    () => filterIssues(index, search, prefs.hiddenStatuses),
+    [index, search, prefs.hiddenStatuses],
+  );
+  const setHidden = (hiddenStatuses: Status[]): void =>
+    setPrefs({ ...prefs, hiddenStatuses: STATUSES.filter((status) => hiddenStatuses.includes(status)) });
   // A refetch can drop the selected issue (deleted, or another checkout).
   const selected = selectedId !== null ? (index.byId.get(selectedId) ?? null) : null;
   const openCount = [...index.byId.values()].filter((issue) => issue.status !== "closed").length;
@@ -2065,11 +2340,20 @@ function BeadsPanel({ threadId }: { threadId: string }) {
           ? { text: "No issues yet. Create one with +.", error: false }
           : null;
 
-  const toolbar = (
+  const header = (
     <div className="flex h-9 shrink-0 items-center gap-1.5 px-3 pointer-coarse:h-12 pointer-coarse:px-4">
       <span className="text-xs font-medium text-muted-foreground pointer-coarse:text-[13px]">Issues</span>
       {query.data !== undefined && <CountPill>{openCount} open</CountPill>}
       <span className="flex-1" />
+      <button
+        className={TOOLBAR_BUTTON + (prefs.showIds ? " bg-surface-recessed text-foreground" : "")}
+        aria-label="Show issue IDs"
+        aria-pressed={prefs.showIds}
+        title="Show issue IDs"
+        onClick={() => setPrefs({ ...prefs, showIds: !prefs.showIds })}
+      >
+        <span className="font-mono text-[13px] font-semibold leading-none">#</span>
+      </button>
       {query.data?.initialized === true && (
         <button
           className={TOOLBAR_BUTTON}
@@ -2089,6 +2373,16 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         <RefreshCw className={"h-3.5 w-3.5" + (query.isFetching ? " animate-spin" : "")} />
       </button>
     </div>
+  );
+  const toolbar = (
+    <>
+      {header}
+      {view.error !== null && (
+        <p role="alert" className="shrink-0 px-3 pb-1 text-xs text-destructive-text pointer-coarse:px-4">
+          Could not save the view setting: {view.error}
+        </p>
+      )}
+    </>
   );
 
   // The form takes the whole panel in every layout: a side panel is too narrow
@@ -2148,6 +2442,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         checkout={query.data?.checkout ?? null}
         issue={selected}
         index={index}
+        showIds={prefs.showIds}
         onSelect={setSelectedId}
         onForm={setForm}
       />
@@ -2155,7 +2450,54 @@ function BeadsPanel({ threadId }: { threadId: string }) {
       <p className="px-3.5 pt-3 text-xs text-subtle-foreground">Select an issue to see its details.</p>
     );
 
-  if (layout === "drill") {
+  const controls = (
+    <>
+      <SearchField value={search} active={visible} onChange={setSearch} />
+      <StatusChips
+        counts={counts}
+        hidden={prefs.hiddenStatuses}
+        onToggle={(status) =>
+          setHidden(
+            prefs.hiddenStatuses.includes(status)
+              ? prefs.hiddenStatuses.filter((hidden) => hidden !== status)
+              : [...prefs.hiddenStatuses, status],
+          )
+        }
+      />
+    </>
+  );
+  const list = (
+    <>
+      {view.listView === "status" ? (
+        <GroupedList
+          index={index}
+          filter={filter}
+          query={search}
+          showIds={prefs.showIds}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+      ) : (
+        <IssueTree
+          index={index}
+          filter={filter}
+          query={search}
+          showIds={prefs.showIds}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+      )}
+      <ListNote
+        filter={filter}
+        query={search}
+        onShow={(statuses) =>
+          setHidden(prefs.hiddenStatuses.filter((status) => !statuses.includes(status)))
+        }
+      />
+    </>
+  );
+
+  if (drill) {
     return (
       <div className="flex h-full flex-col">
         {selected !== null ? (
@@ -2172,28 +2514,18 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         ) : (
           <>
             {toolbar}
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {configured === "grouped" ? (
-                <GroupedList index={index} selectedId={null} onSelect={setSelectedId} />
-              ) : (
-                <IssueTree index={index} selectedId={null} onSelect={setSelectedId} />
-              )}
-            </div>
+            {controls}
+            <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
           </>
         )}
       </div>
     );
   }
 
-  const list =
-    layout === "grouped" ? (
-      <GroupedList index={index} selectedId={selectedId} onSelect={setSelectedId} />
-    ) : (
-      <IssueTree index={index} selectedId={selectedId} onSelect={setSelectedId} />
-    );
   return (
     <div className="flex h-full flex-col">
       {toolbar}
+      {controls}
       <SplitPanes top={list} bottom={detail} />
     </div>
   );

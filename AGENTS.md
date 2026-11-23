@@ -10,10 +10,11 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
   thread's environment checkout through the plugin's full-trust `bb.host`
   worker.
 - **Beads issues side panel** (`app.tsx`) — thread side-panel tab. The
-  `layout` setting picks `split` (default: issue tree over a draggable detail
-  pane), `grouped` (issues grouped by In progress / Blocked / Ready / ... over
-  the detail pane) or `drill` (full-height tree; the detail opens full height
-  with a back link). Status glyphs and priority use bb theme variables
+  `listView` setting picks `tree` (default) or `status` (issues grouped by In
+  progress / Blocked / Ready / ...); `detailMode` picks `split` (default: the
+  list over a draggable detail pane) or `drill` (the detail opens full height
+  with a back link; always on coarse pointers). The panel writes both through
+  the `settings_set` RPC. Status glyphs and priority use bb theme variables
   (`var(--timeline-accent)` etc.), not Tailwind palette classes. The detail
   pane uses bb's host components (`experimental_DetailRow`,
   `experimental_InfoSection`, `experimental_InfoList`); sub-issues, Blocked by

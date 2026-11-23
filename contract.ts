@@ -95,9 +95,14 @@ const issuesCheckout = z
 
 export type IssuesCheckout = z.infer<typeof issuesCheckout>;
 
-// Side-panel layouts, selectable in the plugin settings.
-export const PANEL_LAYOUTS = ["split", "grouped", "drill"] as const;
-export type PanelLayout = (typeof PANEL_LAYOUTS)[number];
+// Side-panel view settings, kept in the plugin settings so the settings page
+// and the panel agree. The list arranges issues as a parent/child tree or in
+// workflow-state groups; on a fine pointer the detail opens below the list
+// (split) or replaces it (drill).
+export const LIST_VIEWS = ["tree", "status"] as const;
+export type ListView = (typeof LIST_VIEWS)[number];
+export const DETAIL_MODES = ["split", "drill"] as const;
+export type DetailMode = (typeof DETAIL_MODES)[number];
 
 // The editable fields of an issue, shared by the create and edit forms. The
 // server turns a draft (or a draft diff) into `bd` argv; the frontend never
@@ -123,6 +128,12 @@ const issueDraft = z
 export type IssueDraft = z.infer<typeof issueDraft>;
 
 export const rpcContract = defineRpcContract({
+  settings_set: {
+    input: z
+      .object({ listView: z.enum(LIST_VIEWS).optional(), detailMode: z.enum(DETAIL_MODES).optional() })
+      .strict(),
+    output: z.object({ error: z.string().nullable() }).strict(),
+  },
   files_search: {
     input: z
       .object({ threadId: z.string().min(1), query: z.string().max(200) })
@@ -148,6 +159,8 @@ export const rpcContract = defineRpcContract({
         error: z.string().nullable(),
         // Null when the thread has no environment.
         checkout: issuesCheckout.nullable(),
+        // `bd config get issue_prefix`; null when unset or unreadable.
+        issuePrefix: z.string().nullable(),
       })
       .strict(),
     tags: () => ["beads:issues"],

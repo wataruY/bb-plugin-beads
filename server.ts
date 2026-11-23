@@ -12,7 +12,8 @@ import {
   hostContract,
   hostSignals,
   ATTACHMENT_DIR,
-  PANEL_LAYOUTS,
+  DETAIL_MODES,
+  LIST_VIEWS,
   rpcContract,
   type BdIssueNode,
   type IssueDraft,
@@ -120,15 +121,25 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Path to the `bd` beads CLI",
       default: "bd",
     },
-    layout: {
+    listView: {
       type: "select",
-      label: "Issues panel layout",
-      description: "How the Beads issues side panel arranges the issue list and the issue detail.",
-      options: [...PANEL_LAYOUTS],
+      label: "Issues panel list",
+      description: "How the Beads issues side panel arranges the issue list.",
+      options: [...LIST_VIEWS],
       experimental_optionLabels: {
-        split: "Tree + detail (split)",
-        grouped: "Grouped by state + detail (split)",
-        drill: "Tree, detail opens full height",
+        tree: "Tree",
+        status: "Grouped by status",
+      },
+      default: "tree",
+    },
+    detailMode: {
+      type: "select",
+      label: "Issues panel detail",
+      description: "Where the issue detail opens on desktop. Phones always open it full height.",
+      options: [...DETAIL_MODES],
+      experimental_optionLabels: {
+        split: "Below the list (split)",
+        drill: "Full height",
       },
       default: "split",
     },
@@ -238,7 +249,9 @@ and install beads from https://beads.gascity.com if needed.`,
     // Any successful mutating `bd` run may have changed the issue graph;
     // refresh the side-panel tree in every client once. Reads are excluded
     // so the panel's own refresh does not invalidate itself.
-    if (!READ_ONLY_BD_COMMANDS.has(args[0])) {
+    const readOnly =
+      READ_ONLY_BD_COMMANDS.has(args[0]) || (args[0] === "config" && args[1] === "get");
+    if (!readOnly) {
       bb.rpc.experimental_invalidate(["beads:issues"]);
     }
     return { result, error: null };
@@ -367,9 +380,41 @@ and install beads from https://beads.gascity.com if needed.`,
     };
   }
 
+  // The checkout's issue prefix, so the panel can show `fvn.1` for
+  // `<prefix>-fvn.1`. It rarely changes, so ask `bd` once per checkout; a
+  // failure (e.g. beads not initialized yet) is retried on the next read.
+  const issuePrefixes = new Map<string, string>();
+  async function issuePrefix(env: ThreadEnv, signal: AbortSignal | undefined): Promise<string | null> {
+    const key = `${env.hostId}:${env.cwd}`;
+    const cached = issuePrefixes.get(key);
+    if (cached !== undefined) return cached;
+    const { result } = await runBd(["config", "get", "issue_prefix", "--json"], {
+      threadId: null,
+      signal,
+      env,
+    });
+    if (result === null || result.exitCode !== 0) return null;
+    try {
+      const { value } = JSON.parse(result.stdout) as { value?: unknown };
+      if (typeof value !== "string" || value === "") return null;
+      issuePrefixes.set(key, value);
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
   // Side-panel RPC: the frontend tree reads the thread's issue graph through
   // the same host worker the agent tool and CLI use.
   bb.rpc.register(rpcContract, {
+    settings_set: async (values) => {
+      try {
+        await settings.experimental_set(values);
+        return { error: null };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    },
     issues_tree: async ({ threadId }, ctx) => {
       const env = await resolveThreadEnv(threadId);
       if (env === null) {
@@ -378,16 +423,18 @@ and install beads from https://beads.gascity.com if needed.`,
           issues: [],
           error: noEnvError,
           checkout: null,
+          issuePrefix: null,
         };
       }
       const checkout =
         env.environmentId === null ? null : { environmentId: env.environmentId, rootPath: env.cwd };
-      const { result, error } = await runBd(["list", "--all", "--json"], {
-        threadId,
-        signal: ctx.experimental_signal,
-        env,
-      });
-      if (error !== null) return { initialized: false, issues: [], error, checkout };
+      const [{ result, error }, prefix] = await Promise.all([
+        runBd(["list", "--all", "--json"], { threadId, signal: ctx.experimental_signal, env }),
+        issuePrefix(env, ctx.experimental_signal),
+      ]);
+      if (error !== null) {
+        return { initialized: false, issues: [], error, checkout, issuePrefix: prefix };
+      }
       if (result!.exitCode !== 0) {
         const stderr = result!.stderr.trim();
         if (/no beads database found/i.test(stderr)) {
@@ -397,6 +444,7 @@ and install beads from https://beads.gascity.com if needed.`,
             error:
               "Beads is not initialized in this checkout. Run `bd init --skip-agents --non-interactive`, or ask the agent to run the beads tool with args [\"init\", \"--skip-agents\", \"--non-interactive\"].",
             checkout,
+            issuePrefix: prefix,
           };
         }
         return {
@@ -407,6 +455,7 @@ and install beads from https://beads.gascity.com if needed.`,
               ? stderr
               : `bd list failed (exit ${result!.exitCode})`,
           checkout,
+          issuePrefix: prefix,
         };
       }
       let parsed: unknown;
@@ -418,6 +467,7 @@ and install beads from https://beads.gascity.com if needed.`,
           issues: [],
           error: "Could not parse the `bd list --json` output.",
           checkout,
+          issuePrefix: prefix,
         };
       }
       if (!Array.isArray(parsed)) {
@@ -426,12 +476,13 @@ and install beads from https://beads.gascity.com if needed.`,
           issues: [],
           error: "Unexpected `bd list --json` output (expected a JSON array).",
           checkout,
+          issuePrefix: prefix,
         };
       }
       const issues = parsed
         .map((row) => toIssueNode(row))
         .filter((node): node is BdIssueNode => node !== null);
-      return { initialized: true, issues, error: null, checkout };
+      return { initialized: true, issues, error: null, checkout, issuePrefix: prefix };
     },
     files_search: async ({ threadId, query }, ctx) => {
       const env = await resolveThreadEnv(threadId);
