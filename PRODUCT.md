@@ -74,10 +74,18 @@ human and the agents always see the same truth.
 
 The panel can:
 
-- show the issue tree in three selectable layouts:
-  - split: tree over detail;
-  - grouped: grouped by workflow state over detail;
-  - drill: full-height tree, with the detail opening full height;
+- arrange the list with two view settings, set in plugin settings or from
+  the panel header:
+  - list view: Tree (epics and sub-issues) or Status (grouped by workflow
+    state);
+  - detail mode, desktop only: Split (list over detail) or Full height. On a
+    phone the detail always opens full height;
+- search the list by id, title, or label, where `#label` matches labels
+  only;
+- filter by status with chips that show each status's count. Deferred and
+  closed are hidden by default, and the choice is kept per device;
+- overlay short issue IDs on rows on demand, so an issue can be named
+  without opening it;
 - show issue detail: status, priority, type, parent, owner, labels, due date,
   estimate, Markdown description, acceptance, design and notes, sub-issue
   progress, "blocked by", and "blocks";

@@ -145,7 +145,8 @@ literal.
   on an open issue, errors, P0, and the bug type.
 - **Done Green** (`--success`, oklch(74% 0.15 155)): closed, and sub-issue
   progress.
-- **Caution Amber** (`--warning`, oklch(75% 0.16 50)): P1 priority.
+- **Caution Amber** (`--warning`, oklch(75% 0.16 50)): P1 priority. A 30%
+  mix of it also marks search matches in row titles.
 - **Epic Violet** (`--pr-merged`, oklch(68% 0.18 295)): the epic type glyph.
 
 ### Neutral
@@ -157,12 +158,13 @@ literal.
 - **Ruled Line** (`--border`): field outlines and dividers.
 - **Recessed Tint** (`--surface-recessed`, 6% ink): hover, chips, label
   pills, and count pills.
-- **Selected Tint** (`--surface-selected`): the selected row.
+- **Selected Tint** (`--surface-selected`): the selected row and the
+  selected segment.
 
 ### Named Rules
 **The State-Only Colour Rule.** Hue appears only where it encodes issue
 state, priority, or type. Chrome, borders, buttons, and section headings stay
-neutral.
+neutral. The one exception is the search-match highlight.
 
 **The Shape-First Rule.** Every status reads without colour: a ring for
 open, a half fill for in progress, a slash for blocked, a dashed ring for
@@ -211,7 +213,7 @@ The panel is one column, mobile first.
 **On desktop (fine pointer, narrow side panel):**
 - Rows may tighten to 28 to 32px.
 - Padding may tighten to 12 to 14px.
-- The split layout (tree over a resizable detail pane) is allowed because a
+- The split layout (list over a resizable detail pane) is allowed because a
   pointer can hit the splitter.
 
 **Rhythm:**
@@ -221,7 +223,7 @@ The panel is one column, mobile first.
 - More space above a section heading than below it.
 
 **Hierarchy of a screen:**
-1. A header bar with the context name, the count, and the actions.
+1. A header bar with the view controls and actions, or a back control.
 2. The title.
 3. The property chips.
 4. The property rows (Parent, Owner, Labels).
@@ -237,9 +239,9 @@ The system is flat. Depth comes from tonal layers, not shadows:
 - the selected tint for the current row;
 - outlined fields.
 
-One exception: the inline issue picker's dropdown gets a soft, offset shadow
-(`0 4px 12px -4px rgb(0 0 0 / 0.18)`) so it reads as floating over the rows
-below it.
+Two exceptions: the inline issue picker's dropdown and the Display menu get
+a soft, offset shadow (`0 4px 12px -4px rgb(0 0 0 / 0.18)`) so they read as
+floating over the rows below.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat at rest. A shadow is allowed
@@ -251,7 +253,8 @@ only on something that floats over content, such as a picker or popover.
   - 6px for rows, fields, and buttons (`rounded-md`);
   - 4px for small tags (`rounded`);
   - fully round for property chips and count pills.
-- Borders are 1px in the ruled-line colour, and only on inputs and chips.
+- Borders are 1px in the ruled-line colour. They appear only on inputs,
+  chips, segmented controls, the ID tag, and popovers.
 - No cards. Sections are separated by space and headings, not boxes.
 
 ## Components
@@ -261,8 +264,8 @@ only on something that floats over content, such as a picker or popover.
   weight label. Use one per screen.
 - **Ghost:** transparent with faint-pencil text and an icon plus a label
   (Edit, Sub-issue, Add, Cancel). It takes the recessed tint on hover.
-- **Icon:** a square icon-only button for toolbar actions (New issue,
-  Refresh), with an `aria-label` and a `title`.
+- **Icon:** a square icon-only button for toolbar actions (`#`, Display,
+  New issue, Refresh), with an `aria-label` and a `title`.
 - **Hit area:** at least 44 by 44px on touch, even when the drawn icon is
   14px. Pad the button, don't enlarge the glyph.
 - **Focus:** a 1 to 2px `--ring` outline on `:focus-visible`.
@@ -279,9 +282,18 @@ only on something that floats over content, such as a picker or popover.
 - **Anatomy:** status glyph, type glyph (epic or bug only), title (truncated,
   full text in `title`), then optional meta: parent crumb, label, due date,
   progress, and a P0/P1 badge.
+- **ID overlay:** with `#` on, the short ID (the issue prefix stripped) sits
+  at the row's right end, over the meta. It is mono 12px in a 4px-radius tag
+  with a 1px border, on an opaque panel-coloured halo. It is the only overlay
+  in a row. It never moves or re-truncates the title, and it is not a tap
+  target. Relation lists show it too.
 - **States:** recessed tint on hover, selected tint on selection, and a ring
   on keyboard focus.
 - **Closed issues:** the title is in faint pencil.
+- **Context rows:** in the tree, an ancestor shown only because a descendant
+  matches is dimmed. Its title is in faint pencil and the row is at 75%
+  opacity.
+- **Search matches:** matched title text gets the amber highlight.
 
 ### Inputs / Fields
 - **Title input:** borderless at title size. The title is the form's
@@ -294,12 +306,31 @@ only on something that floats over content, such as a picker or popover.
   Stop Red text. It names the problem and the recovery.
 
 ### Navigation
-- **Header bar:** a context label and count pill, a spacer, then icon or
-  primary actions.
+The list toolbar has three rows. The approved mockup is
+[`assets/mockups/panel-toolbar.html`](assets/mockups/panel-toolbar.html).
+
+- **Header bar:** a Tree|Status segmented control, a spacer, then icon
+  actions: `#` (ID overlay), Display, New issue, and Refresh. The segment
+  labels collapse to icons when the panel is narrow. `#` takes the recessed
+  tint while pressed. A dot on Display marks a menu-only value that differs
+  from its default.
+- **Search field:** full width under the header. It matches id, title, and
+  label; a `#label` token matches labels only. `/` focuses it, and Esc
+  clears it, then leaves it.
+- **Status chips:** one per status, with the glyph and the count. Each chip
+  toggles that status in the list. A hidden chip is dashed and faint.
+  Deferred and closed are hidden by default.
+- **List note:** under the list, the match count and what the chips hide,
+  with a Show link.
+- **Display menu:** a popover with every view option. It holds Group by,
+  Detail (desktop only), Show (one checkbox per status), Issue IDs, and
+  Reset to defaults. It mirrors the header controls and holds no state of
+  its own.
+- **Where view state lives:** list view and detail mode are plugin settings.
+  The panel writes them, so the settings page and the panel agree. Hidden
+  statuses and the ID overlay are per device. The search query is not kept.
 - **Drill-in:** a back control at top left, with a chevron and the parent
   context ("Issues", "Cancel").
-- **Panel layout:** selected in plugin settings, never with an in-panel
-  toggle.
 
 ### Issue form (signature component)
 One form, two variants. Create starts empty, or under a parent when opened

@@ -1,0 +1,108 @@
+<style>
+.wrap{display:flex;flex-wrap:wrap;gap:20px;font-family:var(--font-sans)}
+.frame{width:330px;border:1px solid var(--border);border-radius:var(--radius);padding:0 0 12px;position:relative;overflow:hidden}
+.cap{font-size:12px;color:var(--muted-foreground);margin:0 0 6px;font-weight:500}
+.hdr{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px}
+.lbl{font-size:12px;font-weight:500;color:var(--muted-foreground)}
+.pill{font-size:12px;background:var(--surface-recessed);border-radius:999px;padding:0 7px;color:var(--muted-foreground)}
+.sp{flex:1}
+.ib{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--subtle-foreground);position:relative}
+.dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:9px;background:var(--foreground)}
+.seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.seg span{font-size:12px;padding:5px 9px;color:var(--subtle-foreground);display:flex;gap:4px;align-items:center}
+.seg .on{background:var(--surface-selected,var(--accent));color:var(--foreground);font-weight:500}
+.search{margin:0 12px 6px;display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;height:34px;padding:0 10px;font-size:13px;color:var(--subtle-foreground)}
+.search.act{border-color:var(--ring);color:var(--foreground)}
+.chips{display:flex;gap:4px;padding:0 12px 6px}
+.chip{display:flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:999px;border:1px solid var(--border);font-size:12px;color:var(--foreground);font-variant-numeric:tabular-nums}
+.chip.off{border-style:dashed;color:var(--subtle-foreground);opacity:.7}
+.row{display:flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 calc(var(--d,0)*16px + 10px);font-size:12.5px}
+.row .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--foreground)}
+.row.ctx .t{color:var(--subtle-foreground)}
+.row.ctx{opacity:.75}
+.id{font-family:var(--font-mono);font-size:12px;color:var(--subtle-foreground);flex-shrink:0;min-width:48px}
+.m{font-size:12px;color:var(--subtle-foreground);font-variant-numeric:tabular-nums}
+.p1{font-size:12px;font-weight:600;color:var(--warning)}
+mark{background:color-mix(in oklch,var(--warning) 30%,transparent);color:inherit;border-radius:2px}
+.gh{font-size:12px;font-weight:500;color:var(--muted-foreground);padding:8px 12px 2px;display:flex;gap:6px;align-items:center}
+.note{font-size:12px;color:var(--subtle-foreground);padding:6px 12px}
+.note u{color:var(--foreground)}
+.pop{position:absolute;right:10px;top:40px;width:230px;background:var(--popover,var(--background));border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px -4px rgb(0 0 0/.18);padding:10px;font-size:12px;z-index:2}
+.pop h4{margin:8px 0 4px;font-size:12px;font-weight:500;color:var(--muted-foreground)}
+.pop h4:first-child{margin-top:0}
+.ck{display:flex;align-items:center;gap:6px;height:28px;color:var(--foreground)}
+.box{width:14px;height:14px;border:1px solid var(--border);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px}
+.box.y{background:var(--foreground);color:var(--background)}
+.ck .m{margin-left:auto}
+.idov{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-family:var(--font-mono);font-size:12px;padding:1px 6px;border-radius:4px;background:var(--surface-raised,var(--background));border:1px solid var(--border);color:var(--foreground);box-shadow:0 0 0 4px var(--background)}
+.row{position:relative}
+.ib.on{background:var(--surface-recessed);color:var(--foreground)}
+.hash{font-family:var(--font-mono);font-size:13px;font-weight:600}
+</style>
+<svg width="0" height="0" style="position:absolute">
+<symbol id="open" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></symbol>
+<symbol id="prog" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--timeline-accent,#7aa2f7)" stroke-width="1.5"/><path d="M7 1.5a5.5 5.5 0 0 1 0 11z" fill="var(--timeline-accent,#7aa2f7)"/></symbol>
+<symbol id="blk" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--destructive-text)" stroke-width="1.5"/><path d="M3.2 10.8l7.6-7.6" stroke="var(--destructive-text)" stroke-width="1.5"/></symbol>
+<symbol id="def" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--subtle-foreground)" stroke-width="1.5" stroke-dasharray="2.2 2"/></symbol>
+<symbol id="done" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.2" fill="var(--success)"/><path d="M4.3 7.2l1.9 1.9 3.6-3.8" fill="none" stroke="var(--background)" stroke-width="1.5"/></symbol>
+<symbol id="epic" viewBox="0 0 14 14"><path d="M7 2l5 2.8-5 2.8-5-2.8zM2 7.2l5 2.8 5-2.8M2 9.6l5 2.8 5-2.8" fill="none" stroke="var(--pr-merged,#a78bfa)" stroke-width="1.2"/></symbol>
+<symbol id="srch" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9 9l3.5 3.5" stroke="currentColor" stroke-width="1.4"/></symbol>
+<symbol id="tree" viewBox="0 0 14 14"><path d="M2 2.5h5M4 2.5v8.5h4M4 7h4" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="5.5" width="3" height="3" fill="currentColor"/><rect x="9" y="9.5" width="3" height="3" fill="currentColor"/></symbol>
+<symbol id="grp" viewBox="0 0 14 14"><path d="M2 3h10M2 7h10M2 11h10" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="slid" viewBox="0 0 14 14"><path d="M2 4h10M2 10h10" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="4" r="1.7" fill="var(--background)" stroke="currentColor"/><circle cx="9" cy="10" r="1.7" fill="var(--background)" stroke="currentColor"/></symbol>
+<symbol id="plus" viewBox="0 0 14 14"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.4"/></symbol>
+<symbol id="ref" viewBox="0 0 14 14"><path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2v2.5H9" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+</svg>
+<div class="wrap">
+<div><p class="cap">1 · 既定（IDは非表示、行幅はすべてタイトルへ）</p><div class="frame">
+ <div class="hdr"><div class="seg"><span class="on"><svg width=13 height=13><use href="#tree"/></svg>Tree</span><span><svg width=13 height=13><use href="#grp"/></svg>Status</span></div><span class="sp"></span><span class="ib"><span class="hash">#</span></span><span class="ib"><svg width=14 height=14><use href="#slid"/></svg></span><span class="ib"><svg width=14 height=14><use href="#plus"/></svg></span><span class="ib"><svg width=14 height=14><use href="#ref"/></svg></span></div>
+ <div class="search"><svg width=14 height=14><use href="#srch"/></svg>Search id, title, #label</div>
+ <div class="chips"><span class="chip"><svg width=13 height=13><use href="#open"/></svg>9</span><span class="chip"><svg width=13 height=13><use href="#prog"/></svg>1</span><span class="chip"><svg width=13 height=13><use href="#blk"/></svg>2</span><span class="chip off"><svg width=13 height=13><use href="#def"/></svg>0</span><span class="chip off"><svg width=13 height=13><use href="#done"/></svg>6</span></div>
+ <div class="row"><svg width=14 height=14><use href="#open"/></svg><svg width=14 height=14><use href="#epic"/></svg><span class="t" style="font-weight:500">Beads side panel</span><span class="m">4/11</span><span class="p1">P1</span></div>
+ <div class="row" style="--d:1"><svg width=14 height=14><use href="#open"/></svg><span class="t" style="font-weight:500">Issue tree view</span><span class="m">0/3</span><span class="p1">P1</span></div>
+ <div class="row" style="--d:2"><svg width=14 height=14><use href="#open"/></svg><span class="t">Draggable horizontal split</span></div>
+ <div class="row" style="--d:2"><svg width=14 height=14><use href="#prog"/></svg><span class="t">Tree not refreshed after close</span></div>
+ <div class="row" style="--d:1"><svg width=14 height=14><use href="#blk"/></svg><span class="t">Render acceptance criteria</span></div>
+ <div class="row"><svg width=14 height=14><use href="#open"/></svg><svg width=14 height=14><use href="#epic"/></svg><span class="t" style="font-weight:500">Issue comments</span><span class="m">0/5</span></div>
+ <div class="note">6 closed hidden · <u>Show</u></div>
+</div></div>
+
+<div><p class="cap">2 · # オン：IDを行の右端にオーバーレイ（レイアウトは動かない）</p><div class="frame">
+ <div class="hdr"><div class="seg"><span class="on"><svg width=13 height=13><use href="#tree"/></svg>Tree</span><span><svg width=13 height=13><use href="#grp"/></svg>Status</span></div><span class="sp"></span><span class="ib on"><span class="hash">#</span></span><span class="ib"><svg width=14 height=14><use href="#slid"/></svg></span><span class="ib"><svg width=14 height=14><use href="#plus"/></svg></span><span class="ib"><svg width=14 height=14><use href="#ref"/></svg></span></div>
+ <div class="search"><svg width=14 height=14><use href="#srch"/></svg>Search id, title, #label</div>
+ <div class="chips"><span class="chip"><svg width=13 height=13><use href="#open"/></svg>9</span><span class="chip"><svg width=13 height=13><use href="#prog"/></svg>1</span><span class="chip"><svg width=13 height=13><use href="#blk"/></svg>2</span><span class="chip off"><svg width=13 height=13><use href="#def"/></svg>0</span><span class="chip off"><svg width=13 height=13><use href="#done"/></svg>6</span></div>
+ <div class="row"><svg width=14 height=14><use href="#open"/></svg><svg width=14 height=14><use href="#epic"/></svg><span class="t" style="font-weight:500">Beads side panel</span><span class="m">4/11</span><span class="p1">P1</span><span class="idov">fvn</span></div>
+ <div class="row" style="--d:1"><svg width=14 height=14><use href="#open"/></svg><span class="t" style="font-weight:500">Issue tree view</span><span class="m">0/3</span><span class="p1">P1</span><span class="idov">fvn.1</span></div>
+ <div class="row" style="--d:2"><svg width=14 height=14><use href="#open"/></svg><span class="t">Draggable horizontal split</span><span class="idov">fvn.1.1</span></div>
+ <div class="row" style="--d:2"><svg width=14 height=14><use href="#prog"/></svg><span class="t">Tree not refreshed after close</span><span class="idov">fvn.1.3</span></div>
+ <div class="row" style="--d:1"><svg width=14 height=14><use href="#blk"/></svg><span class="t">Render acceptance criteria</span><span class="idov">fvn.2.1</span></div>
+ <div class="row"><svg width=14 height=14><use href="#open"/></svg><svg width=14 height=14><use href="#epic"/></svg><span class="t" style="font-weight:500">Issue comments</span><span class="m">0/5</span><span class="idov">38r</span></div>
+ <div class="note">6 closed hidden · <u>Show</u></div>
+</div></div>
+
+<div><p class="cap">3 · 検索中（祖先は文脈として薄く、枝は自動展開）</p><div class="frame">
+ <div class="hdr"><div class="seg"><span class="on"><svg width=13 height=13><use href="#tree"/></svg>Tree</span><span><svg width=13 height=13><use href="#grp"/></svg>Status</span></div><span class="sp"></span><span class="ib"><span class="hash">#</span></span><span class="ib"><svg width=14 height=14><use href="#slid"/></svg></span><span class="ib"><svg width=14 height=14><use href="#plus"/></svg></span><span class="ib"><svg width=14 height=14><use href="#ref"/></svg></span></div>
+ <div class="search act"><svg width=14 height=14><use href="#srch"/></svg>tree<span class="sp"></span>✕</div>
+ <div class="chips"><span class="chip"><svg width=13 height=13><use href="#open"/></svg>9</span><span class="chip"><svg width=13 height=13><use href="#prog"/></svg>1</span><span class="chip"><svg width=13 height=13><use href="#blk"/></svg>2</span><span class="chip off"><svg width=13 height=13><use href="#def"/></svg>0</span><span class="chip off"><svg width=13 height=13><use href="#done"/></svg>6</span></div>
+ <div class="row ctx"><svg width=14 height=14><use href="#open"/></svg><svg width=14 height=14><use href="#epic"/></svg><span class="t">Beads side panel</span></div>
+ <div class="row" style="--d:1"><svg width=14 height=14><use href="#open"/></svg><span class="t" style="font-weight:500">Issue <mark>tree</mark> view</span><span class="m">0/3</span><span class="p1">P1</span></div>
+ <div class="row" style="--d:2"><svg width=14 height=14><use href="#prog"/></svg><span class="t"><mark>Tree</mark> not refreshed after close</span></div>
+ <div class="note">2 matches · 1 more in closed · <u>Show</u></div>
+</div></div>
+
+<div><p class="cap">4 · Display メニュー（詳細設定。チップ・トグルと同じ状態）</p><div class="frame" style="min-height:380px">
+ <div class="hdr"><div class="seg"><span class="on"><svg width=13 height=13><use href="#tree"/></svg>Tree</span><span><svg width=13 height=13><use href="#grp"/></svg>Status</span></div><span class="sp"></span><span class="ib"><span class="hash">#</span></span><span class="ib on"><svg width=14 height=14><use href="#slid"/></svg><i class="dot"></i></span><span class="ib"><svg width=14 height=14><use href="#plus"/></svg></span><span class="ib"><svg width=14 height=14><use href="#ref"/></svg></span></div>
+ <div class="pop">
+  <h4>Group by</h4><div class="seg"><span class="on">Tree</span><span>Status</span></div>
+  <h4>Detail (desktop)</h4><div class="seg"><span class="on">Split</span><span>Full height</span></div>
+  <h4>Show</h4>
+  <div class="ck"><span class="box y">✓</span><svg width=13 height=13><use href="#open"/></svg>Open<span class="m">9</span></div>
+  <div class="ck"><span class="box y">✓</span><svg width=13 height=13><use href="#prog"/></svg>In progress<span class="m">1</span></div>
+  <div class="ck"><span class="box y">✓</span><svg width=13 height=13><use href="#blk"/></svg>Blocked<span class="m">2</span></div>
+  <div class="ck"><span class="box"></span><svg width=13 height=13><use href="#def"/></svg>Deferred<span class="m">0</span></div>
+  <div class="ck"><span class="box"></span><svg width=13 height=13><use href="#done"/></svg>Closed<span class="m">6</span></div>
+  <div class="ck"><span class="box"></span><span class="hash" style="width:13px;text-align:center">#</span>Issue IDs</div>
+  <h4 style="border-top:1px solid var(--border);padding-top:8px"><u>Reset to defaults</u></h4>
+ </div>
+</div></div>
+</div>
