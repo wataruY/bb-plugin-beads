@@ -319,7 +319,9 @@ The list toolbar has three rows. The approved mockup is
   clears it, then leaves it.
 - **Status chips:** one per status, with the glyph and the count. Each chip
   toggles that status in the list. A hidden chip is dashed and faint.
-  Deferred and closed are hidden by default.
+  Deferred and closed are hidden by default. The row fits on one line at
+  320px. On touch, each chip's hit area is at least 44px square. Three-digit
+  counts can push it onto a second line, which is the intended fallback.
 - **List note:** under the list, the match count and what the chips hide,
   with a Show link.
 - **Display menu:** a popover with every view option. It holds Group by,

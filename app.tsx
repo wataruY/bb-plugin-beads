@@ -564,12 +564,12 @@ function StatusChips({
             aria-pressed={shown}
             aria-label={`${STATUS_LABEL[status]}, ${counts[status]}, ${shown ? "shown" : "hidden"}`}
             title={`${shown ? "Hide" : "Show"} ${STATUS_LABEL[status].toLowerCase()}`}
-            className="group flex h-7 items-center outline-none pointer-coarse:h-11"
+            className="group flex h-7 items-center justify-center outline-none pointer-coarse:h-11 pointer-coarse:min-w-11"
             onClick={() => onToggle(status)}
           >
             <span
               className={
-                "flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs tabular-nums group-hover:bg-surface-recessed group-focus-visible:ring-1 group-focus-visible:ring-ring pointer-coarse:px-2.5 pointer-coarse:text-[13px] " +
+                "flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs tabular-nums group-hover:bg-surface-recessed group-focus-visible:ring-1 group-focus-visible:ring-ring pointer-coarse:px-1.5 pointer-coarse:text-[13px] " +
                 (shown ? "text-foreground" : "border-dashed text-subtle-foreground opacity-70")
               }
             >
