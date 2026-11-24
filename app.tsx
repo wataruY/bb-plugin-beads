@@ -26,16 +26,19 @@ import {
   Copy,
   CornerDownRight,
   Layers,
+  ListTree,
   Pencil,
   Plus,
   RefreshCw,
+  Rows3,
   Search,
+  SlidersHorizontal,
   Tag,
   Timer,
   User,
   X,
 } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   DETAIL_MODES,
   LIST_VIEWS,
@@ -51,6 +54,7 @@ import {
   buildIndex,
   compareIssues,
   countByStatus,
+  DEFAULT_VIEW_PREFS,
   effectiveStatus,
   filterIssues,
   matchRanges,
@@ -2159,7 +2163,203 @@ function EditIssueForm({
 // Panel
 
 const TOOLBAR_BUTTON =
-  "flex h-6 w-6 items-center justify-center rounded-md text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11";
+  "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11";
+
+type SegmentOption<T extends string> = { value: T; label: string; icon?: React.ReactNode };
+
+// Breakpoints on the header's content box. Fine pointer: a panel under 300px
+// (less 2 x 12px padding). Coarse: the labelled switch beside four 44px
+// buttons needs 322px.
+const SEGMENT_LABEL_NARROW = "@max-[276px]:sr-only pointer-coarse:@max-[322px]:sr-only";
+
+// Native radios, visually hidden: arrow keys move and select within the group
+// and Tab enters at the checked option. A segment with an icon drops its label
+// (kept for screen readers) when the header, its container, gets narrow.
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly SegmentOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const name = useId();
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex shrink-0 overflow-hidden rounded-md border border-border">
+      {options.map((option) => (
+        <label
+          key={option.value}
+          title={option.label}
+          className={
+            "flex h-6 cursor-pointer items-center gap-1 px-2 text-xs has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-ring pointer-coarse:h-11 pointer-coarse:px-2.5 pointer-coarse:text-[13px] " +
+            (option.value === value
+              ? "bg-surface-selected font-medium text-foreground"
+              : "text-subtle-foreground hover:bg-surface-recessed hover:text-foreground")
+          }
+        >
+          <input
+            type="radio"
+            name={name}
+            value={option.value}
+            checked={option.value === value}
+            onChange={() => onChange(option.value)}
+            className="sr-only"
+          />
+          {option.icon}
+          <span className={option.icon !== undefined ? SEGMENT_LABEL_NARROW : undefined}>{option.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+const LIST_VIEW_LABELS: SegmentOption<ListView>[] = [
+  { value: "tree", label: "Tree" },
+  { value: "status", label: "Status" },
+];
+const LIST_VIEW_SEGMENTS: SegmentOption<ListView>[] = [
+  { value: "tree", label: "Tree", icon: <ListTree className="h-3.5 w-3.5 shrink-0" /> },
+  { value: "status", label: "Status", icon: <Rows3 className="h-3.5 w-3.5 shrink-0" /> },
+];
+const DETAIL_MODE_LABELS: SegmentOption<DetailMode>[] = [
+  { value: "split", label: "Split" },
+  { value: "drill", label: "Full height" },
+];
+
+const MENU_ROW =
+  "flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 hover:bg-surface-recessed pointer-coarse:h-11 pointer-coarse:gap-2 pointer-coarse:px-2";
+const MENU_HEADING = "px-1.5 pb-1 pt-2 font-medium text-muted-foreground first:pt-0 pointer-coarse:px-2";
+const CHECKBOX =
+  "h-3.5 w-3.5 shrink-0 accent-[var(--foreground)] outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-4 pointer-coarse:w-4";
+
+// Every view option in one popover. It holds no state of its own: the header
+// segment, the # button and the status chips change the same values.
+// `detailMode` is null where the panel always drills in (coarse pointers).
+function DisplayMenu({
+  listView,
+  detailMode,
+  counts,
+  hidden,
+  showIds,
+  changed,
+  onListView,
+  onDetailMode,
+  onToggleStatus,
+  onShowIds,
+  onReset,
+}: {
+  listView: ListView;
+  detailMode: DetailMode | null;
+  counts: Record<Status, number>;
+  hidden: readonly Status[];
+  showIds: boolean;
+  changed: boolean;
+  onListView: (listView: ListView) => void;
+  onDetailMode: (detailMode: DetailMode) => void;
+  onToggleStatus: (status: Status) => void;
+  onShowIds: (showIds: boolean) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverId = useId();
+  useEffect(() => {
+    if (!open) return;
+    // An outside tap closes without taking focus from what was tapped.
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node) || !wrapRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  return (
+    <div
+      ref={wrapRef}
+      className="contents"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        buttonRef.current?.focus();
+      }}
+    >
+      <button
+        ref={buttonRef}
+        className={TOOLBAR_BUTTON + " relative" + (open ? " bg-surface-recessed text-foreground" : "")}
+        aria-label={changed ? "Display options, changed from defaults" : "Display options"}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? popoverId : undefined}
+        title="Display options"
+        onClick={() => setOpen(!open)}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        {changed && (
+          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-foreground pointer-coarse:right-2.5 pointer-coarse:top-2.5" />
+        )}
+      </button>
+      {open && (
+        <div
+          id={popoverId}
+          role="dialog"
+          aria-label="Display options"
+          className="absolute right-3 top-full z-20 w-[232px] max-w-[calc(100%-1.5rem)] rounded-lg border border-border bg-popover p-1.5 text-xs text-foreground shadow-[0_4px_12px_-4px_rgb(0_0_0/0.18)] pointer-coarse:right-4 pointer-coarse:w-72 pointer-coarse:max-w-[calc(100%-2rem)] pointer-coarse:text-[13px]"
+        >
+          <p className={MENU_HEADING}>Group by</p>
+          <div className="px-1.5 pointer-coarse:px-2">
+            <Segmented label="Group by" options={LIST_VIEW_LABELS} value={listView} onChange={onListView} />
+          </div>
+          {detailMode !== null && (
+            <>
+              <p className={MENU_HEADING}>Detail (desktop)</p>
+              <div className="px-1.5">
+                <Segmented label="Detail" options={DETAIL_MODE_LABELS} value={detailMode} onChange={onDetailMode} />
+              </div>
+            </>
+          )}
+          <p className={MENU_HEADING}>Show</p>
+          {STATUSES.map((status) => (
+            <label key={status} className={MENU_ROW}>
+              <input
+                type="checkbox"
+                className={CHECKBOX}
+                checked={!hidden.includes(status)}
+                onChange={() => onToggleStatus(status)}
+              />
+              <StatusGlyph status={status} size={13} />
+              {STATUS_LABEL[status]}
+              <span className="ml-auto tabular-nums text-subtle-foreground">{counts[status]}</span>
+            </label>
+          ))}
+          <label className={MENU_ROW}>
+            <input
+              type="checkbox"
+              className={CHECKBOX}
+              checked={showIds}
+              onChange={(event) => onShowIds(event.target.checked)}
+            />
+            <span className="w-[13px] text-center font-mono font-semibold leading-none">#</span>
+            Issue IDs
+          </label>
+          <div className="mt-1.5 border-t border-border pt-1.5">
+            <button
+              className="flex h-7 w-full items-center rounded-md px-1.5 text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:px-2"
+              onClick={onReset}
+            >
+              Reset to defaults
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const SPLIT_MIN = 0.15;
 const SPLIT_MAX = 0.85;
@@ -2235,6 +2435,9 @@ function useCoarsePointer(): boolean {
 }
 
 type ViewSettings = { listView: ListView; detailMode: DetailMode };
+const LIST_AND_DETAIL = ["listView", "detailMode"] as const;
+// The settings' declared defaults, which are also pickOption's fallbacks.
+const DEFAULT_VIEW: ViewSettings = { listView: LIST_VIEWS[0], detailMode: DETAIL_MODES[0] };
 
 function pickOption<T extends string>(options: readonly [T, ...T[]], value: unknown): T {
   return options.find((option) => option === value) ?? options[0];
@@ -2264,7 +2467,13 @@ function useViewSettings() {
   }, [saved.listView, saved.detailMode]);
   const set = (patch: Partial<ViewSettings>): void => {
     setError(null);
-    setPending((current) => ({ ...current, ...patch }));
+    // A value equal to the saved one needs no override, and one kept would
+    // never drop: the effect above runs only when the saved value changes.
+    setPending((current) => {
+      const next = { ...current, ...patch };
+      for (const key of LIST_AND_DETAIL) if (patch[key] === saved[key]) delete next[key];
+      return next;
+    });
     void write.mutate(patch).then(
       (result) => result.error,
       (failure: unknown) => (failure instanceof Error ? failure.message : String(failure)),
@@ -2327,9 +2536,28 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   );
   const setHidden = (hiddenStatuses: Status[]): void =>
     setPrefs({ ...prefs, hiddenStatuses: STATUSES.filter((status) => hiddenStatuses.includes(status)) });
+  const toggleStatus = (status: Status): void =>
+    setHidden(
+      prefs.hiddenStatuses.includes(status)
+        ? prefs.hiddenStatuses.filter((hidden) => hidden !== status)
+        : [...prefs.hiddenStatuses, status],
+    );
+  const setShowIds = (showIds: boolean): void => setPrefs({ ...prefs, showIds });
+  const resetView = (): void => {
+    setPrefs(DEFAULT_VIEW_PREFS);
+    const patch: Partial<ViewSettings> = {};
+    if (view.listView !== DEFAULT_VIEW.listView) patch.listView = DEFAULT_VIEW.listView;
+    if (view.detailMode !== DEFAULT_VIEW.detailMode) patch.detailMode = DEFAULT_VIEW.detailMode;
+    if (Object.keys(patch).length > 0) view.set(patch);
+  };
+  // The Display dot: something the menu holds, and the header does not show,
+  // differs from its default. Detail mode counts only where it applies.
+  const displayChanged =
+    prefs.hiddenStatuses.join() !== DEFAULT_VIEW_PREFS.hiddenStatuses.join() ||
+    prefs.showIds !== DEFAULT_VIEW_PREFS.showIds ||
+    (!coarse && view.detailMode !== DEFAULT_VIEW.detailMode);
   // A refetch can drop the selected issue (deleted, or another checkout).
   const selected = selectedId !== null ? (index.byId.get(selectedId) ?? null) : null;
-  const openCount = [...index.byId.values()].filter((issue) => issue.status !== "closed").length;
 
   const message =
     query.isLoading && query.data === undefined
@@ -2341,19 +2569,36 @@ function BeadsPanel({ threadId }: { threadId: string }) {
           : null;
 
   const header = (
-    <div className="flex h-9 shrink-0 items-center gap-1.5 px-3 pointer-coarse:h-12 pointer-coarse:px-4">
-      <span className="text-xs font-medium text-muted-foreground pointer-coarse:text-[13px]">Issues</span>
-      {query.data !== undefined && <CountPill>{openCount} open</CountPill>}
+    <div className="@container relative flex h-9 shrink-0 items-center gap-1.5 px-3 pointer-coarse:h-12 pointer-coarse:gap-0 pointer-coarse:px-4">
+      <Segmented
+        label="Group by"
+        options={LIST_VIEW_SEGMENTS}
+        value={view.listView}
+        onChange={(listView) => view.set({ listView })}
+      />
       <span className="flex-1" />
       <button
         className={TOOLBAR_BUTTON + (prefs.showIds ? " bg-surface-recessed text-foreground" : "")}
         aria-label="Show issue IDs"
         aria-pressed={prefs.showIds}
         title="Show issue IDs"
-        onClick={() => setPrefs({ ...prefs, showIds: !prefs.showIds })}
+        onClick={() => setShowIds(!prefs.showIds)}
       >
         <span className="font-mono text-[13px] font-semibold leading-none">#</span>
       </button>
+      <DisplayMenu
+        listView={view.listView}
+        detailMode={coarse ? null : view.detailMode}
+        counts={counts}
+        hidden={prefs.hiddenStatuses}
+        showIds={prefs.showIds}
+        changed={displayChanged}
+        onListView={(listView) => view.set({ listView })}
+        onDetailMode={(detailMode) => view.set({ detailMode })}
+        onToggleStatus={toggleStatus}
+        onShowIds={setShowIds}
+        onReset={resetView}
+      />
       {query.data?.initialized === true && (
         <button
           className={TOOLBAR_BUTTON}
@@ -2453,17 +2698,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   const controls = (
     <>
       <SearchField value={search} active={visible} onChange={setSearch} />
-      <StatusChips
-        counts={counts}
-        hidden={prefs.hiddenStatuses}
-        onToggle={(status) =>
-          setHidden(
-            prefs.hiddenStatuses.includes(status)
-              ? prefs.hiddenStatuses.filter((hidden) => hidden !== status)
-              : [...prefs.hiddenStatuses, status],
-          )
-        }
-      />
+      <StatusChips counts={counts} hidden={prefs.hiddenStatuses} onToggle={toggleStatus} />
     </>
   );
   const list = (
