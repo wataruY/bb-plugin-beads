@@ -482,10 +482,8 @@ const GROUPS: { status: Status; label: string }[] = [
 
 function GroupedList({ index, filter, query, showIds, selectedId, onSelect }: ListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<Status>>(new Set());
-  // Epics are containers, not work items; their children carry them as a crumb.
-  const items = [...filter.matches]
-    .map((id) => index.byId.get(id)!)
-    .filter((issue) => issue.type !== "epic");
+  // filterIssues already left out what the status view does not render.
+  const items = [...filter.matches].map((id) => index.byId.get(id)!);
   return (
     <div className="py-1">
       {GROUPS.map((group) => {
@@ -1176,7 +1174,7 @@ function IssuePicker({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const matches = [...index.byId.values()]
-    .filter((issue) => !exclude.has(issue.id) && matchesQuery(issue, query))
+    .filter((issue) => !exclude.has(issue.id) && matchesQuery(issue, query, index.issuePrefix))
     .sort(
       (a, b) =>
         (epicsFirst ? Number(b.type === "epic") - Number(a.type === "epic") : 0) ||
@@ -2531,8 +2529,8 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   );
   const counts = useMemo(() => countByStatus(index), [index]);
   const filter = useMemo(
-    () => filterIssues(index, search, prefs.hiddenStatuses),
-    [index, search, prefs.hiddenStatuses],
+    () => filterIssues(index, search, prefs.hiddenStatuses, view.listView),
+    [index, search, prefs.hiddenStatuses, view.listView],
   );
   const setHidden = (hiddenStatuses: Status[]): void =>
     setPrefs({ ...prefs, hiddenStatuses: STATUSES.filter((status) => hiddenStatuses.includes(status)) });

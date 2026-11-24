@@ -1,7 +1,7 @@
 // Unit check for filter.ts: node --experimental-strip-types scripts/filter-check.ts
 // Exits non-zero on the first failed assertion.
 import assert from "node:assert/strict";
-import type { BdIssueNode } from "../contract.ts";
+import type { BdIssueNode, ListView } from "../contract.ts";
 import {
   DEFAULT_VIEW_PREFS,
   buildIndex,
@@ -51,22 +51,23 @@ const index = buildIndex(
   "proj",
 );
 const sorted = (ids: Set<string>): string[] => [...ids].sort();
-const ids = (query: string, hidden: Parameters<typeof filterIssues>[2] = []): string[] =>
-  sorted(filterIssues(index, query, hidden).matches);
+type Hidden = Parameters<typeof filterIssues>[2];
+const ids = (query: string, hidden: Hidden = [], view: ListView = "tree"): string[] =>
+  sorted(filterIssues(index, query, hidden, view).matches);
 const get = (id: string): BdIssueNode => index.byId.get(id)!;
 
 // An open issue waiting on an open blocker is Blocked, and the Blocked chip hides it.
 assert.equal(get("proj-b").status, "open");
 assert.equal(effectiveStatus(get("proj-b"), index), "blocked");
-const noBlocked = filterIssues(index, "", ["blocked"]);
+const noBlocked = filterIssues(index, "", ["blocked"], "tree");
 assert.ok(!noBlocked.matches.has("proj-b"));
 assert.equal(noBlocked.hiddenByStatus.blocked, 1);
-assert.ok(filterIssues(index, "", []).matches.has("proj-b"));
+assert.ok(filterIssues(index, "", [], "tree").matches.has("proj-b"));
 
 // '#ui' matches labels only (substring); plain 'ui' also matches titles.
 assert.deepEqual(ids("#ui"), ["proj-d", "proj-e.1"]);
-assert.ok(!matchesQuery(get("proj-g"), "#ui"));
-assert.ok(matchesQuery(get("proj-g"), "ui"));
+assert.ok(!matchesQuery(get("proj-g"), "#ui", "proj"));
+assert.ok(matchesQuery(get("proj-g"), "ui", "proj"));
 
 // A label on every issue (hidden in rows) is still searchable.
 assert.ok(index.sharedLabels.has("shared"));
@@ -78,31 +79,71 @@ assert.deepEqual(ids("TREE view"), ["proj-b", "proj-e.1"]);
 assert.deepEqual(ids("tree refreshed"), ["proj-e.1.1"]);
 
 // Ancestors of a match land in context, not in matches.
-const refreshed = filterIssues(index, "refreshed", []);
+const refreshed = filterIssues(index, "refreshed", [], "tree");
 assert.deepEqual(sorted(refreshed.matches), ["proj-e.1.1"]);
 assert.deepEqual(sorted(refreshed.context), ["proj-e", "proj-e.1"]);
 
 // With closed hidden and no query, a closed epic with an open child is context.
-const defaults = filterIssues(index, "", DEFAULT_VIEW_PREFS.hiddenStatuses);
+const defaults = filterIssues(index, "", DEFAULT_VIEW_PREFS.hiddenStatuses, "tree");
 assert.ok(defaults.matches.has("proj-c.1"));
 assert.ok(defaults.context.has("proj-c"));
 assert.ok(!defaults.matches.has("proj-c"));
 
 // hiddenByStatus counts query matches hidden by status.
 assert.deepEqual(defaults.hiddenByStatus, { open: 0, in_progress: 0, blocked: 0, deferred: 1, closed: 1 });
-const oldEpic = filterIssues(index, "old", ["closed"]);
+const oldEpic = filterIssues(index, "old", ["closed"], "tree");
 assert.equal(oldEpic.matches.size, 0);
 assert.equal(oldEpic.hiddenByStatus.closed, 1);
 
-// Ids: the full id and the short id match by substring.
+// Ids: the full id and the short id match by substring. A token wholly inside
+// the shared 'proj-' does not match ids.
 assert.deepEqual(ids("e.1.1"), ["proj-e.1.1"]);
 assert.deepEqual(ids("proj-e.1.1"), ["proj-e.1.1"]);
-assert.deepEqual(ids("proj").length, index.byId.size - 1);
-assert.ok(!ids("proj").includes("custom-9"));
+assert.deepEqual(ids("proj"), []);
+assert.deepEqual(ids("j-"), []);
+assert.deepEqual(ids("j-e.1"), ["proj-e.1", "proj-e.1.1"]);
 assert.equal(shortId("proj-e.1.1", "proj"), "e.1.1");
 assert.equal(shortId("custom-9", "proj"), "custom-9");
 assert.equal(shortId("proj-e", null), "proj-e");
 assert.deepEqual(ids("custom-9"), ["custom-9"]);
+
+// The prefix guard on a repo-shaped index: 'beads' and 'plugin' sit inside
+// 'bb-plugin-beads-', so they match titles, labels and custom ids only.
+const repo = buildIndex(
+  [
+    issue("bb-plugin-beads-fvn", "Beads side panel", { type: "epic" }),
+    issue("bb-plugin-beads-fvn.1", "Issue tree view", { parent: "bb-plugin-beads-fvn" }),
+    issue("bb-plugin-beads-fvn.1.3", "Tree not refreshed", { parent: "bb-plugin-beads-fvn.1" }),
+    issue("bb-plugin-beads-fvn.10", "Status view counts", { parent: "bb-plugin-beads-fvn" }),
+    issue("bb-plugin-beads-x2", "Settings page", { labels: ["plugin"] }),
+    issue("beads-roadmap", "Custom id"),
+  ],
+  "bb-plugin-beads",
+);
+const repoIds = (query: string): string[] => sorted(filterIssues(repo, query, [], "tree").matches);
+assert.deepEqual(repoIds("beads"), ["bb-plugin-beads-fvn", "beads-roadmap"]);
+assert.deepEqual(repoIds("plugin"), ["bb-plugin-beads-x2"]);
+assert.deepEqual(repoIds("bb-plugin-beads-"), []);
+assert.deepEqual(repoIds("bb-plugin-beads-fvn.1"), [
+  "bb-plugin-beads-fvn.1",
+  "bb-plugin-beads-fvn.1.3",
+  "bb-plugin-beads-fvn.10",
+]);
+assert.deepEqual(repoIds("fvn.1.3"), ["bb-plugin-beads-fvn.1.3"]);
+assert.deepEqual(repoIds("s-fvn.10"), ["bb-plugin-beads-fvn.10"]);
+assert.deepEqual(repoIds("roadmap"), ["beads-roadmap"]);
+assert.ok(matchesQuery(repo.byId.get("beads-roadmap")!, "beads", "bb-plugin-beads"));
+assert.ok(!matchesQuery(repo.byId.get("bb-plugin-beads-fvn.1")!, "beads", "bb-plugin-beads"));
+assert.ok(matchesQuery(repo.byId.get("bb-plugin-beads-fvn.1")!, "beads", null));
+
+// The status view does not render epics, so its counts leave them out; the
+// tree view counts them.
+assert.deepEqual(ids("panel"), ["proj-e"]);
+assert.deepEqual(ids("panel", [], "status"), []);
+assert.equal(filterIssues(index, "old", ["closed"], "tree").hiddenByStatus.closed, 1);
+assert.equal(filterIssues(index, "old", ["closed"], "status").hiddenByStatus.closed, 0);
+assert.equal(ids("", [], "status").length, index.byId.size - 2);
+assert.ok(!ids("", [], "status").some((id) => get(id).type === "epic"));
 
 // Chip counts cover the whole index by effective status.
 assert.deepEqual(countByStatus(index), { open: 5, in_progress: 1, blocked: 1, deferred: 1, closed: 1 });

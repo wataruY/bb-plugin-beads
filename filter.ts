@@ -1,7 +1,7 @@
 // The panel's issue model and list filtering: pure functions shared by the
 // panel and scripts/filter-check.ts. No React or SDK imports and type-only
 // imports from the contract, so it runs under `node --experimental-strip-types`.
-import type { BdIssueNode } from "./contract.js";
+import type { BdIssueNode, ListView } from "./contract.js";
 
 // ---------------------------------------------------------------------------
 // Domain model: one index over the `issues_tree` rows, shared by every list
@@ -27,14 +27,15 @@ export type IssueIndex = {
 // the settings page shares.
 export type ViewPrefs = { hiddenStatuses: Status[]; showIds: boolean };
 
-// What the list shows for a query and a set of hidden statuses.
+// What a list view shows for a query and a set of hidden statuses.
 export type IssueFilter = {
-  // Issues that match the query and whose status is shown.
+  // Issues the view renders that match the query and whose status is shown.
   matches: Set<string>;
   // Ancestors of a match that are not matches themselves, whatever their
   // status: the tree shows them dimmed so a match keeps its place.
   context: Set<string>;
-  // Issues that match the query but are hidden by their status.
+  // Issues the view renders that match the query but are hidden by their
+  // status.
   hiddenByStatus: Record<Status, number>;
 };
 
@@ -138,27 +139,43 @@ export function matchRanges(text: string, query: string): [number, number][] {
 
 // Every whitespace-separated token must match, case-insensitively, as a
 // substring of the id, the title or a label; a `#token` matches labels only.
-// The short id is a suffix of the full id, so matching the full id covers it.
-export function matchesQuery(issue: BdIssueNode, query: string): boolean {
+// Every id carries the checkout's '<prefix>-', so a token wholly inside it
+// ('beads', 'plugin') would match every issue: it matches the id only where
+// it reaches past the prefix ('fvn.1', 'bb-plugin-beads-fvn.1'). An id
+// without the prefix (a custom --id) is matched in full.
+export function matchesQuery(issue: BdIssueNode, query: string, prefix: string | null): boolean {
   const id = issue.id.toLowerCase();
+  const short = shortId(issue.id, prefix).toLowerCase();
+  const head = id.slice(0, id.length - short.length);
   const title = issue.title.toLowerCase();
   const labels = issue.labels.map((label) => label.toLowerCase());
   return queryTokens(query).every((token) => {
     if (token.startsWith("#")) return labels.some((label) => label.includes(token.slice(1)));
-    return id.includes(token) || title.includes(token) || labels.some((label) => label.includes(token));
+    const idHit = short.includes(token) || (!head.includes(token) && id.includes(token));
+    return idHit || title.includes(token) || labels.some((label) => label.includes(token));
   });
 }
 
+// Whether a list view shows the issue as a row. The status view skips epics:
+// they are containers, not work items, and their children carry them as a
+// crumb.
+function rendersIssue(issue: BdIssueNode, view: ListView): boolean {
+  return view === "tree" || issue.type !== "epic";
+}
+
+// Counts cover only the rows the view renders, so the list note agrees with
+// the list.
 export function filterIssues(
   index: IssueIndex,
   query: string,
   hidden: readonly Status[],
+  view: ListView,
 ): IssueFilter {
   const matches = new Set<string>();
   const context = new Set<string>();
   const hiddenByStatus = zeroCounts();
   for (const issue of index.byId.values()) {
-    if (!matchesQuery(issue, query)) continue;
+    if (!rendersIssue(issue, view) || !matchesQuery(issue, query, index.issuePrefix)) continue;
     const status = effectiveStatus(issue, index);
     if (hidden.includes(status)) hiddenByStatus[status] += 1;
     else matches.add(issue.id);
