@@ -858,7 +858,7 @@ function IssueDetail({
             </button>
           </span>
         </div>
-        <h2 className="mt-0.5 w-full text-[15px] font-semibold leading-snug text-foreground [text-wrap:pretty]">
+        <h2 className="mt-0.5 w-full text-[15px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] [text-wrap:pretty]">
           {issue.title}
         </h2>
         <div className="mt-2 flex flex-wrap gap-1 pointer-coarse:gap-2">
