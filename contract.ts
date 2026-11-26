@@ -39,6 +39,19 @@ export const hostContract = defineRpcContract({
       })
       .strict(),
   },
+  // Watches the beads database of `cwd` and emits `beads_changed` on each
+  // write, until the call is aborted or `renewMs` passes. `error` says why no
+  // watch started (no beads database, `bd` missing).
+  beads_watch: {
+    input: z
+      .object({
+        cwd: z.string().min(1),
+        bdPath: z.string().min(1),
+        renewMs: z.number().int().min(1000).max(1_740_000),
+      })
+      .strict(),
+    output: z.object({ error: z.string().nullable() }).strict(),
+  },
   bd_run: {
     input: z
       .object({
@@ -59,7 +72,10 @@ export const hostContract = defineRpcContract({
   },
 });
 
-export const hostSignals = {} satisfies ExperimentalHostSignals;
+export const hostSignals = {
+  // The beads database under `dir` changed: someone wrote to the issue graph.
+  beads_changed: { payload: z.object({ dir: z.string() }).strict() },
+} satisfies ExperimentalHostSignals;
 
 // Frontend <-> backend RPC contract (app.tsx -> server.ts), separate from the
 // host contract above. The frontend reads the issue tree of a thread's

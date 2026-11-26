@@ -3,8 +3,9 @@
 // shared contract in contract.ts.
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { spawn } from "node:child_process";
-import { mkdir, open, readdir } from "node:fs/promises";
+import { mkdir, open, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { hostContract, hostSignals } from "./contract.js";
 
 const MAX_CAPTURE = 2 * 1024 * 1024;
@@ -167,6 +168,38 @@ async function saveUnique(cwd: string, dir: string, name: string, data: Buffer):
   throw new Error("could not find a free file name");
 }
 
+// The checkout's beads database directory. `bd where` follows a worktree's
+// redirect to the main checkout and honours BEADS_DIR; ask it once per checkout.
+const databaseDirs = new Map<string, string>();
+async function databaseDir(cwd: string, bdPath: string, signal: AbortSignal): Promise<string> {
+  const cached = databaseDirs.get(cwd);
+  if (cached !== undefined) return cached;
+  const result = await runCommand(bdPath, ["where", "--json"], cwd, 30_000, signal);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `bd where failed (exit ${result.exitCode})`);
+  }
+  const where = JSON.parse(result.stdout) as { database_path?: unknown; path?: unknown };
+  const dir = [where.database_path, where.path].find(
+    (value): value is string => typeof value === "string" && value !== "",
+  );
+  if (dir === undefined) throw new Error("bd where reported no database path");
+  databaseDirs.set(cwd, dir);
+  return dir;
+}
+
+// Dolt rewrites a database's `manifest` on every access, reads included, but
+// its content (the root hash) changes only when a write commits. Comparing
+// content keeps the panel's own `bd list` from re-triggering itself.
+async function readManifests(dir: string): Promise<string> {
+  const names = (await readdir(dir, { recursive: true })).filter(
+    (name) => path.basename(name) === "manifest",
+  );
+  const contents = await Promise.all(
+    names.sort().map((name) => readFile(path.join(dir, name), "utf8").catch(() => "")),
+  );
+  return names.map((name, i) => `${name}\0${contents[i]}`).join("\0");
+}
+
 export default experimental_defineHostEntry({
   contract: hostContract,
   experimental_signals: hostSignals,
@@ -205,6 +238,47 @@ export default experimental_defineHostEntry({
       const written = await saveUnique(cwd, dir, name, Buffer.from(dataBase64, "base64"));
       fileLists.delete(cwd);
       return { path: written };
+    },
+    beads_watch: async ({ cwd, bdPath, renewMs }, context) => {
+      let dir: string;
+      let seen: string;
+      try {
+        dir = await databaseDir(cwd, bdPath, context.signal);
+        seen = await readManifests(dir);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+      const stop = new AbortController();
+      let failure: string | null = null;
+      let checks = Promise.resolve();
+      const check = async (): Promise<void> => {
+        const next = await readManifests(dir);
+        if (next === seen) return;
+        seen = next;
+        await context.experimental_emitSignal("beads_changed", { dir });
+      };
+      const subscription = await context.experimental_watch({ rootPath: dir }, (event) => {
+        if (event.kind === "watch-error") {
+          failure = event.message;
+          stop.abort();
+          return;
+        }
+        if (
+          event.kind === "changed" &&
+          !event.changes.some((change) => path.basename(change.path) === "manifest")
+        ) {
+          return;
+        }
+        checks = checks.then(check).catch(() => {});
+      });
+      try {
+        await sleep(renewMs, undefined, { signal: AbortSignal.any([context.signal, stop.signal]) });
+      } catch {
+        // Aborted: the panel stopped watching, or the watch failed.
+      } finally {
+        await subscription.dispose();
+      }
+      return { error: failure };
     },
     bd_run: async ({ args, cwd, bdPath, timeoutMs }, context) => {
       const result = await runCommand(bdPath, args, cwd, timeoutMs, context.signal);

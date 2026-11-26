@@ -11,7 +11,8 @@ tracker for AI coding agents (`bd` CLI) — into BB threads.
   on the machine the checkout lives on.
 - **Beads issues side panel** — a thread side-panel tab showing the issue
   tree of the thread's checkout (status, priority, type, description,
-  dependencies). Refreshes automatically after mutating `bd` commands.
+  dependencies). Refreshes automatically when the issue graph changes,
+  including `bd` run straight from a shell.
   Choose the list with `bb plugin config beads set listView <tree|status>`
   (default `tree`) and where the detail opens on desktop with
   `bb plugin config beads set detailMode <split|drill>` (default `split`).

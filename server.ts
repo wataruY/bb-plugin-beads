@@ -20,6 +20,12 @@ import {
 } from "./contract.js";
 
 const BD_TIMEOUT_MS = 5 * 60_000;
+// A beads_watch host call stays open this long, then the server renews it.
+const WATCH_RENEW_MS = 20 * 60_000;
+// A failed watch (no beads database yet, a worker exit, a reload still
+// registering) restarts after 1 s, doubling up to this cap, so one that keeps
+// failing costs at most one `bd where` per period.
+const WATCH_RETRY_MAX_MS = 30_000;
 const TOOL_OUTPUT_MAX = 20_000;
 
 interface ThreadEnv {
@@ -104,6 +110,18 @@ function updatePlan(
   for (const dep of holds.removed) plan.push(["dep", "remove", dep, id]);
   for (const dep of holds.added) plan.push(["dep", "add", dep, id]);
   return plan;
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 function truncate(text: string, max: number): string {
@@ -575,6 +593,43 @@ and install beads from https://beads.gascity.com if needed.`,
       }
       return { error: null, partial: false };
     },
+  });
+
+  // Writes from outside the panel (an agent's shell, a terminal) refresh it
+  // through a watch on the checkout's beads database. The watch runs only
+  // while a client watches that thread's issue tree; bb stops counting a tab
+  // hidden for five seconds.
+  host.experimental_onSignal("beads_changed", () => {
+    bb.rpc.experimental_invalidate(["beads:issues"]);
+  });
+  bb.rpc.experimental_whileWatched("issues_tree", async (read, signal) => {
+    if (!("input" in read)) return;
+    const input = rpcContract.issues_tree.input.safeParse(read.input);
+    if (!input.success) return;
+    const env = await resolveThreadEnv(input.data.threadId);
+    if (env === null) return;
+    bb.log.info(`watch start ${env.cwd}`);
+    let retryMs = 1000;
+    while (!signal.aborted) {
+      let failure: string | null;
+      try {
+        ({ error: failure } = await host.call(
+          "beads_watch",
+          { cwd: env.cwd, bdPath, renewMs: WATCH_RENEW_MS },
+          { hostId: env.hostId, signal, timeoutMs: WATCH_RENEW_MS + 60_000 },
+        ));
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      }
+      if (failure === null) {
+        retryMs = 1000;
+      } else if (!signal.aborted) {
+        bb.log.warn(`watch failed for ${env.cwd}: ${failure}`);
+        await sleep(retryMs, signal);
+        retryMs = Math.min(retryMs * 2, WATCH_RETRY_MAX_MS);
+      }
+    }
+    bb.log.info(`watch stop ${env.cwd}`);
   });
 
   const usage = [

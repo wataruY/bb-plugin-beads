@@ -57,7 +57,8 @@ human and the agents always see the same truth.
   phone over getbb.app remote access, where the panel fills the screen width
   and the user works by touch.
 - **Concurrent writers:** agents write to the same graph while the panel is
-  open. Every successful mutating `bd` run refreshes the panel. Edits from
+  open. Every write to the graph refreshes the open panel within a second,
+  whether it came through the plugin or from `bd` in a shell. Edits from
   the panel are guarded by the issue's revision, so a concurrent change is
   refused rather than overwritten.
 - **Vocabulary from beads:**

@@ -31,7 +31,8 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 - `app.tsx` — frontend entry: the side-panel tab (React, bundled by bb).
 - `panel.css` — text colours derived from bb's tokens (`--beads-faint`,
   `--beads-caution`) that keep 4.5:1 contrast; bundled into `dist/app.css`.
-- `contract.ts` — zod contracts: host (`bd_run`, `bd_check`), frontend RPC,
+- `contract.ts` — zod contracts: host (`bd_run`, `bd_check`, `beads_watch`
+  and its `beads_changed` signal), frontend RPC,
   CLI. Keep the RPC node shapes in sync with `bd`'s JSON output.
 - `host.ts` — `bb.host` worker that spawns `bd` (bounded output, timeouts).
 - `skills/beads/SKILL.md` — agent instructions.
@@ -45,6 +46,16 @@ Successful **mutating** `bd` runs invalidate the `beads:issues` RPC tag so
 every open panel refetches; read-only commands (see `READ_ONLY_BD_COMMANDS`
 in `server.ts`) must stay excluded, or the panel's own refresh invalidates
 itself in a loop.
+
+Writes from outside the plugin (`bd` in a shell or an agent's terminal)
+arrive through a watch. While a client watches a thread's `issues_tree`
+(`bb.rpc.experimental_whileWatched`; a tab hidden for 5 s stops counting),
+the server holds a `beads_watch` host call. The host resolves the database
+directory with `bd where --json` (once per checkout) and watches it natively.
+It emits `beads_changed` only when a Dolt `manifest` file's content changes.
+Every access, reads included, rewrites the manifest, but only a committed
+write changes its content, so the panel's own `bd list` cannot loop. No panel
+watching means no watch and no `bd` process.
 
 ## Build & verify
 

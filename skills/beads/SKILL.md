@@ -41,7 +41,8 @@ status with `bd update <id> --status <status>` (there is no
 A **Beads issues** tab in the thread side panel (thread menu → "Beads issues")
 shows the issue tree of the thread's checkout: status dots, priorities,
 types, and a detail pane (description, dependencies, timestamps). It refreshes
-automatically after any mutating `bd` command (agent tool or CLI) succeeds.
+automatically whenever the issue graph changes, whether through the agent
+tool, the CLI or `bd` run straight from a shell.
 Users can also create issues (+ in the toolbar) and edit them (Edit in the
 detail header) from the panel; those writes refresh the tree the same way.
 
