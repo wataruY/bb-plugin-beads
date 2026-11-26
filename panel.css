@@ -16,3 +16,16 @@
 [data-bb-plugin="beads"] .bg-surface-selected {
   --beads-faint: var(--foreground);
 }
+
+/*
+ * A context row (an ancestor shown only for a matching descendant) recedes
+ * by losing its state hues to faint text, not by opacity, so every text on
+ * it keeps the 4.5:1 above. Glyph shapes still carry status and type.
+ */
+[data-bb-plugin="beads"] .beads-context {
+  --timeline-accent: var(--beads-faint);
+  --destructive-text: var(--beads-faint);
+  --success: var(--beads-faint);
+  --pr-merged: var(--beads-faint);
+  --beads-caution: var(--beads-faint);
+}

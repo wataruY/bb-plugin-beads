@@ -300,9 +300,13 @@ only on something that floats over content, such as a picker or popover.
   on keyboard focus.
 - **Closed issues:** the title is in faint pencil.
 - **Context rows:** in the tree, an ancestor shown only because a descendant
-  matches is dimmed. Its title is in faint pencil and the row is at 75%
-  opacity.
-- **Search matches:** matched title text gets the amber highlight.
+  matches is dimmed. Its title, meta, glyphs, and P0/P1 badge are all in
+  faint pencil (`.beads-context` in `panel.css`), so the row reads as grey
+  scaffolding around the coloured match. Glyph shapes still carry status and
+  type. Dim with colour, never opacity: opacity takes text below 4.5:1. On
+  the selected tint the row turns to Ink like other faint text.
+- **Search matches:** matched title text gets the amber highlight. Context
+  rows get none, because they do not match.
 
 ### Inputs / Fields
 - **Title input:** borderless at title size. The title is the form's

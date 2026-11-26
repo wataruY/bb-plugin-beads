@@ -320,7 +320,7 @@ function IssueRowContent({
         }
         title={issue.title}
       >
-        <Highlighted text={issue.title} query={query} />
+        <Highlighted text={issue.title} query={dimmed ? "" : query} />
       </span>
       {parentTitle !== undefined && (
         <span className="min-w-0 max-w-[40%] shrink truncate text-xs text-(--beads-faint)">
@@ -467,7 +467,7 @@ const IssueRow = memo(function IssueRow({
         ROW_BASE +
         (tree ? "" : " pl-1.5") +
         (selected ? " bg-surface-selected" : " hover:bg-surface-recessed") +
-        (row.dimmed ? " opacity-75" : "")
+        (row.dimmed ? " beads-context" : "")
       }
       style={rowStyle(top, height, tree ? `calc(${row.level - 1} * var(--beads-indent, 16px) + 2px)` : undefined)}
       onClick={() => onSelect(issue.id)}
