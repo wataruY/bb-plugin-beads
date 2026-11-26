@@ -132,6 +132,12 @@ values. Light-theme values are in `.impeccable/design.json`. Always reference
 the variable (`var(--timeline-accent)`, `bg-surface-recessed`), never the
 literal.
 
+Two text colours are derived from those variables in `panel.css`, because
+some palettes' own values fall below 4.5:1 for text (Catppuccin Latte:
+`--subtle-foreground` 2.7:1, `--warning` 1.8:1). Use `--beads-faint` and
+`--beads-caution` for text, never the raw `--subtle-foreground` or
+`--warning`.
+
 ### Primary
 - **Ink Button** (`--primary`, oklch(82% 0 0) dark / oklch(27% 0 0) light): the
   single primary action on a screen, such as "Create issue" or "Save
@@ -146,15 +152,18 @@ literal.
 - **Done Green** (`--success`, oklch(74% 0.15 155)): closed, and sub-issue
   progress.
 - **Caution Amber** (`--warning`, oklch(75% 0.16 50)): P1 priority. A 30%
-  mix of it also marks search matches in row titles.
+  mix of it also marks search matches in row titles. P1 text uses
+  `--beads-caution`, which caps the lightness at 0.45 in light themes.
 - **Epic Violet** (`--pr-merged`, oklch(68% 0.18 295)): the epic type glyph.
 
 ### Neutral
 - **Night Paper** (`--background`): the panel ground.
 - **Ink** (`--foreground`): titles and primary text.
 - **Pencil** (`--muted-foreground`): section labels and secondary text.
-- **Faint Pencil** (`--subtle-foreground`): IDs, timestamps, placeholders,
-  and idle icons. It still has to pass 4.5:1 on the background.
+- **Faint Pencil** (`--beads-faint`): IDs, timestamps, placeholders, and
+  idle icons. It is `--subtle-foreground` mixed toward Ink (35% in light,
+  70% in dark) so it passes 4.5:1 on the background, and Ink itself on the
+  selected tint.
 - **Ruled Line** (`--border`): field outlines and dividers.
 - **Recessed Tint** (`--surface-recessed`, 6% ink): hover, chips, label
   pills, and count pills.

@@ -29,6 +29,8 @@ tracker for AI coding agents (`bd` CLI) — into BB threads and the shell.
 - `server.ts` — backend entry: agent tool, CLI, settings, RPC handlers
   (`issues_tree`, `issue_show`, `issue_create`, `issue_update`).
 - `app.tsx` — frontend entry: the side-panel tab (React, bundled by bb).
+- `panel.css` — text colours derived from bb's tokens (`--beads-faint`,
+  `--beads-caution`) that keep 4.5:1 contrast; bundled into `dist/app.css`.
 - `contract.ts` — zod contracts: host (`bd_run`, `bd_check`), frontend RPC,
   CLI. Keep the RPC node shapes in sync with `bd`'s JSON output.
 - `host.ts` — `bb.host` worker that spawns `bd` (bounded output, timeouts).

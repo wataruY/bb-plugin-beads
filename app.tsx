@@ -39,6 +39,7 @@ import {
   X,
 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
+import "./panel.css";
 import {
   DETAIL_MODES,
   LIST_VIEWS,
@@ -113,10 +114,10 @@ const PRIORITY_LABEL = ["Critical", "High", "Medium", "Low", "Backlog"];
 // and light/dark mode, and need no generated utility class.
 const PRIORITY_COLOR = [
   "var(--destructive-text)",
-  "var(--warning)",
+  "var(--beads-caution)",
   "var(--muted-foreground)",
-  "var(--subtle-foreground)",
-  "var(--subtle-foreground)",
+  "var(--beads-faint)",
+  "var(--beads-faint)",
 ];
 
 function priorityColor(priority: number): string {
@@ -308,7 +309,7 @@ function IssueRowContent({
       <span
         className={
           "min-w-0 flex-1 truncate " +
-          (status === "closed" || dimmed ? "text-subtle-foreground" : "text-foreground") +
+          (status === "closed" || dimmed ? "text-(--beads-faint)" : "text-foreground") +
           (progress.total > 0 ? " font-medium" : "")
         }
         title={issue.title}
@@ -316,7 +317,7 @@ function IssueRowContent({
         <Highlighted text={issue.title} query={query} />
       </span>
       {parentTitle !== undefined && (
-        <span className="min-w-0 max-w-[40%] shrink truncate text-xs text-subtle-foreground">
+        <span className="min-w-0 max-w-[40%] shrink truncate text-xs text-(--beads-faint)">
           {parentTitle}
         </span>
       )}
@@ -326,12 +327,12 @@ function IssueRowContent({
         </span>
       )}
       {issue.dueAt !== null && (
-        <span className="shrink-0 text-xs text-subtle-foreground tabular-nums" title="Due">
+        <span className="shrink-0 text-xs text-(--beads-faint) tabular-nums" title="Due">
           {formatDay(issue.dueAt)}
         </span>
       )}
       {progress.total > 0 && (
-        <span className="shrink-0 text-xs text-subtle-foreground tabular-nums" title="Sub-issues closed">
+        <span className="shrink-0 text-xs text-(--beads-faint) tabular-nums" title="Sub-issues closed">
           {progress.done}/{progress.total}
         </span>
       )}
@@ -404,7 +405,7 @@ function TreeRow({
       >
         {kids.length > 0 ? (
           <button
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-subtle-foreground hover:text-foreground disabled:hover:text-subtle-foreground pointer-coarse:-my-2 pointer-coarse:h-11 pointer-coarse:w-9 pointer-coarse:-ml-1.5"
+            className="flex h-4 w-4 shrink-0 items-center justify-center text-(--beads-faint) hover:text-foreground disabled:hover:text-(--beads-faint) pointer-coarse:-my-2 pointer-coarse:h-11 pointer-coarse:w-9 pointer-coarse:-ml-1.5"
             aria-label={expanded ? "Collapse" : "Expand"}
             tabIndex={-1}
             disabled={setOpen === null}
@@ -568,7 +569,7 @@ function StatusChips({
             <span
               className={
                 "flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs tabular-nums group-hover:bg-surface-recessed group-focus-visible:ring-1 group-focus-visible:ring-ring pointer-coarse:px-1.5 pointer-coarse:text-[13px] " +
-                (shown ? "text-foreground" : "border-dashed text-subtle-foreground opacity-70")
+                (shown ? "text-foreground" : "border-dashed text-(--beads-faint) opacity-70")
               }
             >
               <StatusGlyph status={status} size={13} />
@@ -606,7 +607,7 @@ function ListNote({
     if (hidden.length > 0) text += ` · ${hiddenTotal} more in ${hidden.map(label).join(", ")}`;
   }
   return (
-    <p className="flex flex-wrap items-center gap-1 px-3 py-1.5 text-xs text-subtle-foreground pointer-coarse:px-4 pointer-coarse:text-[13px]">
+    <p className="flex flex-wrap items-center gap-1 px-3 py-1.5 text-xs text-(--beads-faint) pointer-coarse:px-4 pointer-coarse:text-[13px]">
       {text}
       {hidden.length > 0 && (
         <>
@@ -650,7 +651,7 @@ function SearchField({
   }, [active]);
   return (
     <div className="shrink-0 px-3 pb-1.5 pointer-coarse:px-4">
-      <div className="flex h-8 items-center gap-1.5 rounded-md border border-border pl-2.5 text-subtle-foreground focus-within:border-ring pointer-coarse:h-11 pointer-coarse:pl-3">
+      <div className="flex h-8 items-center gap-1.5 rounded-md border border-border pl-2.5 text-(--beads-faint) focus-within:border-ring pointer-coarse:h-11 pointer-coarse:pl-3">
         <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <input
           ref={input}
@@ -659,7 +660,7 @@ function SearchField({
           enterKeyHint="search"
           aria-label="Search issues"
           placeholder="Search id, title, #label"
-          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:text-base"
+          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-(--beads-faint) pointer-coarse:text-base"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
@@ -855,7 +856,7 @@ function IssueDetail({
   return (
     <div className={"space-y-4 px-3.5 pt-3 pointer-coarse:px-4 pointer-coarse:pt-2 " + SCROLL_END}>
       <header>
-        <div className="group flex flex-wrap items-center gap-x-1.5 gap-y-0 font-mono text-xs text-subtle-foreground">
+        <div className="group flex flex-wrap items-center gap-x-1.5 gap-y-0 font-mono text-xs text-(--beads-faint)">
           <TypeGlyph type={issue.type} />
           <span className="min-w-0 truncate">{issue.id}</span>
           <button
@@ -967,7 +968,7 @@ function IssueDetail({
         <p
           className={
             "text-xs " +
-            (query.isLoading ? "text-subtle-foreground" : "text-destructive-text")
+            (query.isLoading ? "text-(--beads-faint)" : "text-destructive-text")
           }
         >
           {query.isLoading
@@ -980,7 +981,7 @@ function IssueDetail({
             {show.description ? (
               <Prose content={show.description} document={markdownDocument} />
             ) : (
-              <p className="text-xs italic text-subtle-foreground">No description</p>
+              <p className="text-xs italic text-(--beads-faint)">No description</p>
             )}
           </InfoSection>
           {acceptance !== "" && (
@@ -1049,7 +1050,7 @@ function IssueDetail({
       )}
 
       {show?.created_at != null && (
-        <p className="text-xs text-subtle-foreground">
+        <p className="text-xs text-(--beads-faint)">
           Created {formatRelative(show.created_at)}
           {show.created_by ? ` by ${show.created_by}` : ""}
           {issue.commentCount > 0 ? ` · ${issue.commentCount} comments` : ""}
@@ -1124,10 +1125,10 @@ function subtreeIds(id: string, index: IssueIndex): Set<string> {
 }
 
 const FIELD_CLASS =
-  "w-full resize-none rounded-md border border-border bg-transparent px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none [field-sizing:content] placeholder:text-subtle-foreground focus:border-ring pointer-coarse:px-3 pointer-coarse:py-2.5 pointer-coarse:text-base";
+  "w-full resize-none rounded-md border border-border bg-transparent px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-none [field-sizing:content] placeholder:text-(--beads-faint) focus:border-ring pointer-coarse:px-3 pointer-coarse:py-2.5 pointer-coarse:text-base";
 
 const GHOST_BUTTON =
-  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:gap-1.5 pointer-coarse:px-3 pointer-coarse:text-[13px]";
+  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-(--beads-faint) outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:gap-1.5 pointer-coarse:px-3 pointer-coarse:text-[13px]";
 
 // A property chip that is also a native select: the detail header's chip
 // visuals with the platform's picker and keyboard behaviour.
@@ -1152,7 +1153,7 @@ function ChipSelect({
       title={label}
     >
       {children}
-      <ChevronDown className="h-3 w-3 text-subtle-foreground" />
+      <ChevronDown className="h-3 w-3 text-(--beads-faint)" />
       <select
         aria-label={label}
         className="absolute inset-0 cursor-pointer text-base opacity-0"
@@ -1207,7 +1208,7 @@ function IssuePicker({
         aria-expanded
         aria-controls="beads-issue-picker"
         aria-activedescendant={matches[current] ? `beads-pick-${matches[current].id}` : undefined}
-        className="h-8 w-full border-b border-border bg-transparent px-2.5 text-xs text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:h-11 pointer-coarse:px-3 pointer-coarse:text-base"
+        className="h-8 w-full border-b border-border bg-transparent px-2.5 text-xs text-foreground outline-none placeholder:text-(--beads-faint) pointer-coarse:h-11 pointer-coarse:px-3 pointer-coarse:text-base"
         placeholder={placeholder}
         value={query}
         onChange={(event) => {
@@ -1232,7 +1233,7 @@ function IssuePicker({
       />
       <div id="beads-issue-picker" role="listbox" className="max-h-52 overflow-y-auto py-1 pointer-coarse:max-h-[50dvh]">
         {matches.length === 0 ? (
-          <p className="px-2.5 py-1.5 text-xs text-subtle-foreground">No matching issues</p>
+          <p className="px-2.5 py-1.5 text-xs text-(--beads-faint)">No matching issues</p>
         ) : (
           matches.map((issue, i) => (
             <div
@@ -1252,7 +1253,7 @@ function IssuePicker({
               <StatusGlyph status={effectiveStatus(issue, index)} size={12} />
               <TypeGlyph type={issue.type} />
               <span className="min-w-0 flex-1 truncate text-foreground">{issue.title}</span>
-              <span className="shrink-0 font-mono text-xs text-subtle-foreground">
+              <span className="shrink-0 font-mono text-xs text-(--beads-faint)">
                 {shortId(issue.id, index.issuePrefix)}
               </span>
             </div>
@@ -1288,7 +1289,7 @@ function IssueRef({
       )}
       <button
         type="button"
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-subtle-foreground opacity-0 outline-none hover:text-foreground focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:opacity-100"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-(--beads-faint) opacity-0 outline-none hover:text-foreground focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:opacity-100"
         aria-label={`Remove ${issue?.title ?? id}`}
         onClick={onRemove}
       >
@@ -1326,7 +1327,7 @@ function RelationField({
       }
     >
       {ids.length === 0 && !picking ? (
-        <p className="text-xs text-subtle-foreground">None</p>
+        <p className="text-xs text-(--beads-faint)">None</p>
       ) : (
         ids.map((id) => (
           <IssueRef
@@ -1384,7 +1385,7 @@ function LabelsField({
         </span>
       ))}
       <input
-        className="h-5 min-w-[min(6rem,100%)] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:h-11 pointer-coarse:text-base"
+        className="h-5 min-w-[min(6rem,100%)] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-(--beads-faint) pointer-coarse:h-11 pointer-coarse:text-base"
         placeholder={labels.length === 0 ? "Add labels" : "Add"}
         aria-label="Add label"
         list="beads-known-labels"
@@ -1750,7 +1751,7 @@ function AttachmentTextarea({
           </div>
         )}
       </div>
-      {uploads > 0 && <p className="text-xs text-subtle-foreground">Saving image…</p>}
+      {uploads > 0 && <p className="text-xs text-(--beads-faint)">Saving image…</p>}
       {paths.length > 0 && (
         <ul
           role="listbox"
@@ -1774,7 +1775,7 @@ function AttachmentTextarea({
               }
             >
               <span className="shrink-0 text-xs text-foreground">{file.slice(file.lastIndexOf("/") + 1)}</span>
-              <span className="min-w-0 truncate font-mono text-[11px] text-subtle-foreground">{file}</span>
+              <span className="min-w-0 truncate font-mono text-[11px] text-(--beads-faint)">{file}</span>
             </li>
           ))}
         </ul>
@@ -1889,7 +1890,7 @@ function IssueForm({
           {editing === null ? "New issue" : "Edit issue"}
         </span>
         {editing !== null && (
-          <span className="hidden truncate font-mono text-xs text-subtle-foreground min-[360px]:inline">{editing}</span>
+          <span className="hidden truncate font-mono text-xs text-(--beads-faint) min-[360px]:inline">{editing}</span>
         )}
         <span className="flex-1" />
         <button
@@ -1925,7 +1926,7 @@ function IssueForm({
             <input
               autoFocus
               aria-label="Title"
-              className="w-full bg-transparent text-[15px] font-semibold leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-subtle-foreground pointer-coarse:py-2 pointer-coarse:text-base"
+              className="w-full bg-transparent text-[15px] font-semibold leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-(--beads-faint) pointer-coarse:py-2 pointer-coarse:text-base"
               placeholder="Issue title"
               value={draft.title}
               onChange={(event) => set("title", event.target.value)}
@@ -1995,7 +1996,7 @@ function IssueForm({
                   </button>
                   <button
                     type="button"
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-(--beads-faint) outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11"
                     aria-label="Remove parent"
                     onClick={() => set("parent", null)}
                   >
@@ -2005,7 +2006,7 @@ function IssueForm({
               ) : (
                 <button
                   type="button"
-                  className="text-subtle-foreground hover:text-foreground pointer-coarse:min-h-11"
+                  className="text-(--beads-faint) hover:text-foreground pointer-coarse:min-h-11"
                   onClick={() => setPickingParent(true)}
                 >
                   Add to an epic or parent…
@@ -2146,7 +2147,7 @@ function EditIssueForm({
         </div>
         <p
           className={
-            "px-3.5 text-xs " + (query.isLoading ? "text-subtle-foreground" : "text-destructive-text")
+            "px-3.5 text-xs " + (query.isLoading ? "text-(--beads-faint)" : "text-destructive-text")
           }
         >
           {query.isLoading
@@ -2174,7 +2175,7 @@ function EditIssueForm({
 // Panel
 
 const TOOLBAR_BUTTON =
-  "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle-foreground outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11";
+  "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--beads-faint) outline-none hover:bg-surface-recessed hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-11";
 
 type SegmentOption<T extends string> = { value: T; label: string; icon?: React.ReactNode };
 
@@ -2208,7 +2209,7 @@ function Segmented<T extends string>({
             "flex h-6 cursor-pointer items-center gap-1 px-2 text-xs has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-ring pointer-coarse:h-11 pointer-coarse:px-2.5 pointer-coarse:text-[13px] " +
             (option.value === value
               ? "bg-surface-selected font-medium text-foreground"
-              : "text-subtle-foreground hover:bg-surface-recessed hover:text-foreground")
+              : "text-(--beads-faint) hover:bg-surface-recessed hover:text-foreground")
           }
         >
           <input
@@ -2345,7 +2346,7 @@ function DisplayMenu({
               />
               <StatusGlyph status={status} size={13} />
               {STATUS_LABEL[status]}
-              <span className="ml-auto tabular-nums text-subtle-foreground">{counts[status]}</span>
+              <span className="ml-auto tabular-nums text-(--beads-faint)">{counts[status]}</span>
             </label>
           ))}
           <label className={MENU_ROW}>
@@ -2681,7 +2682,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         <p
           className={
             "whitespace-pre-wrap px-3 text-xs pointer-coarse:px-4 pointer-coarse:text-[13px] " +
-            (message.error ? "text-destructive-text" : "text-subtle-foreground")
+            (message.error ? "text-destructive-text" : "text-(--beads-faint)")
           }
         >
           {message.text}
@@ -2703,7 +2704,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         onForm={setForm}
       />
     ) : (
-      <p className="px-3.5 pt-3 text-xs text-subtle-foreground">Select an issue to see its details.</p>
+      <p className="px-3.5 pt-3 text-xs text-(--beads-faint)">Select an issue to see its details.</p>
     );
 
   const controls = (
@@ -2749,7 +2750,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         {selected !== null ? (
           <>
             <button
-              className="flex h-9 shrink-0 items-center gap-1 px-3 text-xs text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-12 pointer-coarse:px-3 pointer-coarse:text-[13px]"
+              className="flex h-9 shrink-0 items-center gap-1 px-3 text-xs text-(--beads-faint) outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-12 pointer-coarse:px-3 pointer-coarse:text-[13px]"
               onClick={() => setSelectedId(null)}
             >
               <ChevronLeft className="h-3.5 w-3.5" />

@@ -1,0 +1,18 @@
+/*
+ * Text colours derived from bb's tokens that keep 4.5:1 contrast where a
+ * palette's own tokens fall short (Catppuccin Latte: --subtle-foreground
+ * 2.7:1, --warning 1.8:1 on the panel ground). Mixing toward
+ * --foreground and capping lightness keep them following the palette.
+ */
+[data-bb-plugin="beads"] {
+  --beads-faint: light-dark(
+    color-mix(in oklab, var(--subtle-foreground) 35%, var(--foreground)),
+    color-mix(in oklab, var(--subtle-foreground) 70%, var(--foreground))
+  );
+  --beads-caution: light-dark(oklch(from var(--warning) min(l, 0.45) c h), var(--warning));
+}
+
+/* The selected tint is darker than the ground; faint text there uses ink. */
+[data-bb-plugin="beads"] .bg-surface-selected {
+  --beads-faint: var(--foreground);
+}
