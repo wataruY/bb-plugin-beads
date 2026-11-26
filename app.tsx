@@ -790,7 +790,8 @@ const PROSE_CLASS =
 // agents and anyone else with bd. Every raw HTML form starts with `<` plus a
 // tag name, `/`, `!` or `?`; a word joiner (U+2060, zero-width) after that
 // `<` makes it plain text everywhere, code included. Autolinks, `a < b` and
-// `<dir/a b.png>` link targets do not match and keep their `<`.
+// the `<./my file.png>` link targets the form writes do not match and keep
+// their `<`. A target written as `<my file.png>` does match and no longer links.
 const HTML_START = /<(?=[!?]|\/[A-Za-z]|[A-Za-z][A-Za-z0-9-]*(?:[\s>]|\/>|$))/g;
 
 function Prose({
@@ -1425,9 +1426,11 @@ const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
 const IMAGE_LINK = /!\[[^\]]*\]\((?:<[^>\n]+>|[^)\s]+)\)/g;
 
 // Angle brackets keep paths with spaces or parentheses a valid link target.
+// The `./` keeps `<my file.png>` from reading as an HTML tag, which Prose
+// would break (see HTML_START).
 function markdownLink(file: string): string {
   const name = file.slice(file.lastIndexOf("/") + 1);
-  const target = /[\s()]/.test(file) ? `<${file}>` : file;
+  const target = /[\s()]/.test(file) ? `<./${file}>` : file;
   return `${IMAGE_EXT.test(file) ? "!" : ""}[${name}](${target})`;
 }
 
