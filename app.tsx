@@ -2520,6 +2520,29 @@ function useViewPrefs(): [ViewPrefs, (next: ViewPrefs) => void] {
   return [prefs, save];
 }
 
+// The panel's error note: what failed, and a Retry beside it.
+function LoadError({ text, onRetry }: { text: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="mx-3 mb-1 flex shrink-0 items-start gap-2 rounded-md py-1.5 pl-2.5 pr-1 text-xs pointer-coarse:mx-4 pointer-coarse:items-center pointer-coarse:text-[13px]"
+      style={{
+        color: "var(--destructive-text)",
+        background: "color-mix(in oklab, var(--destructive-text) 12%, transparent)",
+      }}
+    >
+      <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
+      <button
+        className="-my-1 inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 font-medium outline-none hover:bg-surface-recessed focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:my-0 pointer-coarse:h-11 pointer-coarse:px-3"
+        onClick={onRetry}
+      >
+        <RefreshCw className="h-3 w-3" />
+        Retry
+      </button>
+    </div>
+  );
+}
+
 function BeadsPanel({ threadId }: { threadId: string }) {
   const visible = experimental_useTabVisible();
   const coarse = useCoarsePointer();
@@ -2571,14 +2594,19 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   // A refetch can drop the selected issue (deleted, or another checkout).
   const selected = selectedId !== null ? (index.byId.get(selectedId) ?? null) : null;
 
+  // A failed RPC keeps the last loaded list (query.data) and reports the
+  // failure in query.error; bd's own failures arrive as query.data.error.
   const message =
-    query.isLoading && query.data === undefined
-      ? { text: "Loading issues…", error: false }
-      : query.data?.error != null
+    query.data === undefined
+      ? query.error != null
+        ? { text: `Could not load issues: ${query.error.message}`, error: true }
+        : { text: "Loading issues…", error: false }
+      : query.data.error !== null
         ? { text: query.data.error, error: true }
         : index.byId.size === 0
           ? { text: "No issues yet. Create one with +.", error: false }
           : null;
+  const retry = (): void => void query.refetch();
 
   const header = (
     <div className="@container relative flex h-9 shrink-0 items-center gap-1.5 px-3 pointer-coarse:h-12 pointer-coarse:gap-0 pointer-coarse:px-4">
@@ -2625,7 +2653,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         className={TOOLBAR_BUTTON}
         aria-label="Refresh"
         title="Refresh"
-        onClick={() => void query.refetch()}
+        onClick={retry}
       >
         <RefreshCw className={"h-3.5 w-3.5" + (query.isFetching ? " animate-spin" : "")} />
       </button>
@@ -2638,6 +2666,12 @@ function BeadsPanel({ threadId }: { threadId: string }) {
         <p role="alert" className="shrink-0 px-3 pb-1 text-xs text-destructive-text pointer-coarse:px-4">
           Could not save the view setting: {view.error}
         </p>
+      )}
+      {message === null && query.error != null && (
+        <LoadError
+          text={`Could not refresh issues: ${query.error.message}. The list may be out of date.`}
+          onRetry={retry}
+        />
       )}
     </>
   );
@@ -2679,14 +2713,13 @@ function BeadsPanel({ threadId }: { threadId: string }) {
     return (
       <div className="flex h-full flex-col">
         {toolbar}
-        <p
-          className={
-            "whitespace-pre-wrap px-3 text-xs pointer-coarse:px-4 pointer-coarse:text-[13px] " +
-            (message.error ? "text-destructive-text" : "text-(--beads-faint)")
-          }
-        >
-          {message.text}
-        </p>
+        {message.error ? (
+          <LoadError text={message.text} onRetry={retry} />
+        ) : (
+          <p className="whitespace-pre-wrap px-3 text-xs text-(--beads-faint) pointer-coarse:px-4 pointer-coarse:text-[13px]">
+            {message.text}
+          </p>
+        )}
       </div>
     );
   }
