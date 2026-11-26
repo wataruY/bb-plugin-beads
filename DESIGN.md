@@ -339,7 +339,8 @@ The list toolbar has three rows. The approved mockup is
   its own.
 - **Where view state lives:** list view and detail mode are plugin settings.
   The panel writes them, so the settings page and the panel agree. Hidden
-  statuses and the ID overlay are per device. The search query is not kept.
+  statuses and the ID overlay are kept per project on each device. The
+  search query is not kept.
 - **Drill-in:** a back control at top left, with a chevron and the parent
   context ("Issues", "Cancel").
 

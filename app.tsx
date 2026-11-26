@@ -15,6 +15,7 @@ import {
   experimental_VoiceInputTextarea as VoiceInputTextarea,
   Markdown,
   type PluginCodeThemeData,
+  useBbContext,
   useSettings,
 } from "@get-bb/plugin-sdk/app";
 import {
@@ -2498,19 +2499,47 @@ function useViewSettings() {
   return { ...saved, ...pending, set, error };
 }
 
-// hiddenStatuses and showIds belong to this device, not to the settings page.
-// Storage that throws (blocked or full) keeps the choice for this session only.
-function useViewPrefs(): [ViewPrefs, (next: ViewPrefs) => void] {
-  const key = `${experimental_usePluginId()}:view`;
-  const [prefs, setPrefs] = useState(() => {
-    try {
-      return parseViewPrefs(localStorage.getItem(key));
-    } catch {
-      return parseViewPrefs(null);
+// Before the prefs were kept per project, one `<pluginId>:view` entry held
+// them for every thread. The first project to load takes it over.
+function loadViewPrefs(key: string, legacyKey: string): ViewPrefs {
+  try {
+    let raw = localStorage.getItem(key);
+    if (raw === null) {
+      raw = localStorage.getItem(legacyKey);
+      if (raw !== null) {
+        localStorage.setItem(key, raw);
+        localStorage.removeItem(legacyKey);
+      }
     }
-  });
+    return parseViewPrefs(raw);
+  } catch {
+    return parseViewPrefs(null);
+  }
+}
+
+// hiddenStatuses and showIds belong to this device, not to the settings page,
+// and to the project: its threads share one issue graph (a worktree's beads
+// redirects to the main checkout). The route names the project; a panel whose
+// thread is not the route's keeps its own. Storage that throws (blocked or
+// full) keeps the choice for this session only.
+function useViewPrefs(threadId: string): [ViewPrefs, (next: ViewPrefs) => void] {
+  const pluginId = experimental_usePluginId();
+  const route = useBbContext();
+  const key =
+    route.threadId === threadId && route.projectId !== null
+      ? `${pluginId}:view:project:${route.projectId}`
+      : `${pluginId}:view:thread:${threadId}`;
+  const [stored, setStored] = useState(() => ({
+    key,
+    prefs: loadViewPrefs(key, `${pluginId}:view`),
+  }));
+  let prefs = stored.prefs;
+  if (stored.key !== key) {
+    prefs = loadViewPrefs(key, `${pluginId}:view`);
+    setStored({ key, prefs });
+  }
   const save = (next: ViewPrefs): void => {
-    setPrefs(next);
+    setStored({ key, prefs: next });
     try {
       localStorage.setItem(key, JSON.stringify(next));
     } catch {
@@ -2547,7 +2576,7 @@ function BeadsPanel({ threadId }: { threadId: string }) {
   const visible = experimental_useTabVisible();
   const coarse = useCoarsePointer();
   const view = useViewSettings();
-  const [prefs, setPrefs] = useViewPrefs();
+  const [prefs, setPrefs] = useViewPrefs(threadId);
   // Not persisted.
   const [search, setSearch] = useState("");
   // A phone has no room for the detail beside the list.

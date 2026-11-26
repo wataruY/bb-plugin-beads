@@ -84,7 +84,8 @@ The panel can:
 - search the list by id, title, or label, where `#label` matches labels
   only;
 - filter by status with chips that show each status's count. Deferred and
-  closed are hidden by default, and the choice is kept per device;
+  closed are hidden by default, and the choice is kept per project on each
+  device;
 - overlay short issue IDs on rows on demand, so an issue can be named
   without opening it;
 - show issue detail: status, priority, type, parent, owner, labels, due date,

@@ -23,8 +23,8 @@ export type IssueIndex = {
   issuePrefix: string | null;
 };
 
-// Per-device list preferences (localStorage), as opposed to the view settings
-// the settings page shares.
+// List preferences kept per project on this device (localStorage), as opposed
+// to the view settings the settings page shares.
 export type ViewPrefs = { hiddenStatuses: Status[]; showIds: boolean };
 
 // What a list view shows for a query and a set of hidden statuses.
