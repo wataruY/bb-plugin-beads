@@ -891,7 +891,7 @@ function IssueDetail({
         {parent !== undefined && (
           <DetailRow label="Parent" icon="beads/parent">
             <button
-              className="min-w-0 truncate text-left text-foreground underline decoration-border underline-offset-[3px] hover:decoration-foreground pointer-coarse:min-h-11"
+              className="block max-w-full truncate text-left text-foreground underline decoration-border underline-offset-[3px] hover:decoration-foreground pointer-coarse:min-h-11"
               onClick={() => onSelect(parent.id)}
             >
               {parent.title}
@@ -900,7 +900,7 @@ function IssueDetail({
         )}
         {issue.owner !== null && (
           <DetailRow label="Owner" icon="beads/owner">
-            <span className="truncate" title={issue.owner}>
+            <span className="block truncate" title={issue.owner}>
               {issue.owner.split("@")[0]}
             </span>
           </DetailRow>
@@ -1371,7 +1371,7 @@ function LabelsField({
         </span>
       ))}
       <input
-        className="h-5 min-w-[6rem] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:h-11 pointer-coarse:text-base"
+        className="h-5 min-w-[min(6rem,100%)] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-subtle-foreground pointer-coarse:h-11 pointer-coarse:text-base"
         placeholder={labels.length === 0 ? "Add labels" : "Add"}
         aria-label="Add label"
         list="beads-known-labels"
