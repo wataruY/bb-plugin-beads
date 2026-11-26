@@ -63,10 +63,14 @@ import {
   matchesQuery,
   parseViewPrefs,
   queryActive,
+  rowKeyAction,
   shortId,
   STATUSES,
+  statusRows,
+  treeRows,
   type IssueFilter,
   type IssueIndex,
+  type ListRow,
   type Status,
   type ViewPrefs,
 } from "./filter.js";
@@ -350,10 +354,6 @@ function IssueRowContent({
   );
 }
 
-function shownIn(filter: IssueFilter, issues: BdIssueNode[]): BdIssueNode[] {
-  return issues.filter((issue) => filter.matches.has(issue.id) || filter.context.has(issue.id));
-}
-
 // What every list view renders from.
 type ListProps = {
   index: IssueIndex;
@@ -365,82 +365,185 @@ type ListProps = {
   onSelect: (id: string) => void;
 };
 
-function TreeRow({
-  issue,
-  depth,
-  list,
-  isOpen,
-  setOpen,
+const GROUP_LABEL: Record<Status, string> = {
+  in_progress: "In progress",
+  blocked: "Blocked",
+  open: "Ready",
+  deferred: "Deferred",
+  closed: "Closed",
+};
+
+type RowToggle = (row: ListRow, open: boolean) => void;
+
+function GroupRow({
+  row,
+  tabbable,
+  onToggle,
 }: {
-  issue: BdIssueNode;
-  depth: number;
-  list: ListProps;
-  isOpen: (id: string) => boolean;
-  // Null while a search forces every branch open.
-  setOpen: ((id: string, open: boolean) => void) | null;
+  row: Extract<ListRow, { kind: "group" }>;
+  tabbable: boolean;
+  onToggle: RowToggle;
 }) {
-  const { index, filter, selectedId, onSelect } = list;
-  const kids = shownIn(filter, index.children.get(issue.id) ?? []);
-  const expanded = isOpen(issue.id);
-  const selected = selectedId === issue.id;
-  const dimmed = filter.context.has(issue.id);
   return (
-    <>
-      <div
-        role="treeitem"
-        aria-selected={selected}
-        aria-expanded={kids.length > 0 ? expanded : undefined}
-        tabIndex={0}
-        className={
-          ROW_BASE +
-          (selected ? " bg-surface-selected" : " hover:bg-surface-recessed") +
-          (dimmed ? " opacity-75" : "")
-        }
-        style={{ paddingLeft: `calc(${depth} * var(--beads-indent, 16px) + 2px)` }}
-        onClick={() => onSelect(issue.id)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") onSelect(issue.id);
-          else if (event.key === "ArrowRight" && kids.length > 0) setOpen?.(issue.id, true);
-          else if (event.key === "ArrowLeft" && kids.length > 0) setOpen?.(issue.id, false);
-        }}
-      >
-        {kids.length > 0 ? (
+    <div
+      role="treeitem"
+      data-key={row.key}
+      aria-level={row.level}
+      aria-expanded={row.expanded}
+      tabIndex={tabbable ? 0 : -1}
+      className="flex w-full cursor-pointer items-center gap-1.5 px-3 pb-1 pt-2.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:px-4 pointer-coarse:py-0"
+      onClick={() => onToggle(row, !row.expanded)}
+    >
+      {GROUP_LABEL[row.status]}
+      <CountPill>{row.count}</CountPill>
+      {row.expanded ? null : <ChevronRight className="h-3 w-3" />}
+    </div>
+  );
+}
+
+function IssueRow({
+  row,
+  tree,
+  tabbable,
+  locked,
+  list,
+  onToggle,
+}: {
+  row: Extract<ListRow, { kind: "issue" }>;
+  // Tree rows indent and carry a chevron; status rows name their parent.
+  tree: boolean;
+  tabbable: boolean;
+  locked: boolean;
+  list: ListProps;
+  onToggle: RowToggle;
+}) {
+  const { issue } = row;
+  const selected = list.selectedId === issue.id;
+  return (
+    <div
+      role="treeitem"
+      data-key={row.key}
+      aria-level={row.level}
+      aria-selected={selected}
+      aria-expanded={row.expanded ?? undefined}
+      tabIndex={tabbable ? 0 : -1}
+      className={
+        ROW_BASE +
+        (tree ? "" : " pl-1.5") +
+        (selected ? " bg-surface-selected" : " hover:bg-surface-recessed") +
+        (row.dimmed ? " opacity-75" : "")
+      }
+      style={tree ? { paddingLeft: `calc(${row.level - 1} * var(--beads-indent, 16px) + 2px)` } : undefined}
+      onClick={() => list.onSelect(issue.id)}
+    >
+      {tree &&
+        (row.expanded !== null ? (
           <button
             className="flex h-4 w-4 shrink-0 items-center justify-center text-(--beads-faint) hover:text-foreground disabled:hover:text-(--beads-faint) pointer-coarse:-my-2 pointer-coarse:h-11 pointer-coarse:w-9 pointer-coarse:-ml-1.5"
-            aria-label={expanded ? "Collapse" : "Expand"}
+            aria-label={row.expanded ? "Collapse" : "Expand"}
             tabIndex={-1}
-            disabled={setOpen === null}
+            disabled={locked}
             onClick={(event) => {
               event.stopPropagation();
-              setOpen?.(issue.id, !expanded);
+              onToggle(row, !row.expanded);
             }}
           >
-            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {row.expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           </button>
         ) : (
           <span className="w-4 shrink-0 pointer-coarse:w-7" />
-        )}
-        <IssueRowContent
-          issue={issue}
-          index={index}
-          showParent={false}
-          showId={list.showIds}
-          query={list.query}
-          dimmed={dimmed}
-        />
-      </div>
-      {expanded &&
-        kids.map((kid) => (
-          <TreeRow
-            key={kid.id}
-            issue={kid}
-            depth={depth + 1}
-            list={list}
-            isOpen={isOpen}
-            setOpen={setOpen}
-          />
         ))}
-    </>
+      <IssueRowContent
+        issue={issue}
+        index={list.index}
+        showParent={!tree}
+        showId={list.showIds}
+        query={list.query}
+        dimmed={row.dimmed}
+      />
+    </div>
+  );
+}
+
+// Either view's rows under one role=tree with a roving tabindex: one row is
+// in the tab order (the last focused, else the selected, else the first),
+// and the arrow keys move focus between rows. Focus moves without selecting,
+// since a selection opens the detail full height in drill mode; Enter
+// selects.
+function RowList({
+  label,
+  tree,
+  rows,
+  locked,
+  list,
+  onToggle,
+}: {
+  label: string;
+  tree: boolean;
+  rows: ListRow[];
+  locked: boolean;
+  list: ListProps;
+  onToggle: RowToggle;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const position = useMemo(() => new Map(rows.map((row, at) => [row.key, at])), [rows]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [seenSelected, setSeenSelected] = useState(list.selectedId);
+  if (seenSelected !== list.selectedId) {
+    setSeenSelected(list.selectedId);
+    if (list.selectedId !== null) setActiveKey(list.selectedId);
+  }
+  const tabKey =
+    activeKey !== null && position.has(activeKey)
+      ? activeKey
+      : list.selectedId !== null && position.has(list.selectedId)
+        ? list.selectedId
+        : (rows[0]?.key ?? null);
+  const rowKey = (target: EventTarget): string | undefined =>
+    target instanceof Element ? target.closest<HTMLElement>("[data-key]")?.dataset.key : undefined;
+  return (
+    <div
+      ref={ref}
+      role="tree"
+      aria-label={label}
+      className="py-1 [--beads-indent:16px] pointer-coarse:[--beads-indent:14px]"
+      onFocus={(event) => {
+        const key = rowKey(event.target);
+        if (key !== undefined) setActiveKey(key);
+      }}
+      onKeyDown={(event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+        const key = rowKey(event.target);
+        const at = key !== undefined ? position.get(key) : undefined;
+        if (at === undefined) return;
+        const action = rowKeyAction(rows, at, event.key, locked);
+        if (action === null) return;
+        event.preventDefault();
+        const row = rows[action.at]!;
+        if (action.kind === "toggle") onToggle(row, action.open);
+        else if (action.kind === "activate") list.onSelect(row.key);
+        else {
+          setActiveKey(row.key);
+          ref.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(row.key)}"]`)?.focus();
+        }
+      }}
+    >
+      {rows.map((row) =>
+        row.kind === "group" ? (
+          <GroupRow key={row.key} row={row} tabbable={row.key === tabKey} onToggle={onToggle} />
+        ) : (
+          <IssueRow
+            key={row.key}
+            row={row}
+            tree={tree}
+            tabbable={row.key === tabKey}
+            locked={locked}
+            list={list}
+            onToggle={onToggle}
+          />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -448,97 +551,35 @@ function TreeRow({
 // and clearing it must bring back what the user had collapsed.
 function IssueTree(list: ListProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const searching = queryActive(list.query);
-  const setOpen = (id: string, open: boolean): void => {
+  // A search forces every branch open.
+  const locked = queryActive(list.query);
+  const rows = useMemo(
+    () => treeRows(list.index, list.filter, locked ? () => true : (id) => !collapsed.has(id)),
+    [list.index, list.filter, locked, collapsed],
+  );
+  const onToggle: RowToggle = (row, open) => {
+    if (locked) return;
     const next = new Set(collapsed);
-    if (open) next.delete(id);
-    else next.add(id);
+    if (open) next.delete(row.key);
+    else next.add(row.key);
+    setCollapsed(next);
+  };
+  return <RowList label="Issues" tree rows={rows} locked={locked} list={list} onToggle={onToggle} />;
+}
+
+// A group the user chose to show starts expanded.
+function GroupedList(list: ListProps) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<Status>>(new Set());
+  const rows = useMemo(() => statusRows(list.index, list.filter, collapsed), [list.index, list.filter, collapsed]);
+  const onToggle: RowToggle = (row, open) => {
+    if (row.kind !== "group") return;
+    const next = new Set(collapsed);
+    if (open) next.delete(row.status);
+    else next.add(row.status);
     setCollapsed(next);
   };
   return (
-    <div role="tree" aria-label="Issues" className="py-1 [--beads-indent:16px] pointer-coarse:[--beads-indent:14px]">
-      {shownIn(list.filter, list.index.roots).map((root) => (
-        <TreeRow
-          key={root.id}
-          issue={root}
-          depth={0}
-          list={list}
-          isOpen={searching ? () => true : (id) => !collapsed.has(id)}
-          setOpen={searching ? null : setOpen}
-        />
-      ))}
-    </div>
-  );
-}
-
-// Workflow-state groups: what is moving, what is stuck, what can be picked up.
-// A hidden status has no matches, so its group does not render; a group the
-// user chose to show starts expanded.
-const GROUPS: { status: Status; label: string }[] = [
-  { status: "in_progress", label: "In progress" },
-  { status: "blocked", label: "Blocked" },
-  { status: "open", label: "Ready" },
-  { status: "deferred", label: "Deferred" },
-  { status: "closed", label: "Closed" },
-];
-
-function GroupedList({ index, filter, query, showIds, selectedId, onSelect }: ListProps) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<Status>>(new Set());
-  // filterIssues already left out what the status view does not render.
-  const items = [...filter.matches].map((id) => index.byId.get(id)!);
-  return (
-    <div className="py-1">
-      {GROUPS.map((group) => {
-        const members = items
-          .filter((issue) => effectiveStatus(issue, index) === group.status)
-          .sort(compareIssues);
-        if (members.length === 0) return null;
-        const collapsed = collapsedGroups.has(group.status);
-        return (
-          <section key={group.status}>
-            <button
-              className="flex w-full items-center gap-1.5 px-3 pb-1 pt-2.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:px-4 pointer-coarse:py-0"
-              aria-expanded={!collapsed}
-              onClick={() => {
-                const next = new Set(collapsedGroups);
-                if (next.has(group.status)) next.delete(group.status);
-                else next.add(group.status);
-                setCollapsedGroups(next);
-              }}
-            >
-              {group.label}
-              <CountPill>{members.length}</CountPill>
-              {collapsed ? <ChevronRight className="h-3 w-3" /> : null}
-            </button>
-            {!collapsed &&
-              members.map((issue) => (
-                <div
-                  key={issue.id}
-                  role="button"
-                  tabIndex={0}
-                  className={
-                    ROW_BASE +
-                    " pl-1.5" +
-                    (selectedId === issue.id ? " bg-surface-selected" : " hover:bg-surface-recessed")
-                  }
-                  onClick={() => onSelect(issue.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") onSelect(issue.id);
-                  }}
-                >
-                  <IssueRowContent
-                    issue={issue}
-                    index={index}
-                    showParent
-                    showId={showIds}
-                    query={query}
-                  />
-                </div>
-              ))}
-          </section>
-        );
-      })}
-    </div>
+    <RowList label="Issues by status" tree={false} rows={rows} locked={false} list={list} onToggle={onToggle} />
   );
 }
 

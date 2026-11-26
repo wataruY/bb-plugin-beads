@@ -12,7 +12,11 @@ import {
   matchesQuery,
   queryActive,
   parseViewPrefs,
+  rowKeyAction,
   shortId,
+  statusRows,
+  treeRows,
+  type ListRow,
 } from "../filter.ts";
 
 function issue(id: string, title: string, fields: Partial<BdIssueNode> = {}): BdIssueNode {
@@ -173,5 +177,46 @@ assert.deepEqual(parseViewPrefs('{"hiddenStatuses":[],"showIds":false}'), {
   hiddenStatuses: [],
   showIds: false,
 });
+
+// List rows: the tree view flattens in display order with levels and parents;
+// a collapsed branch hides its rows.
+const keys = (rows: ListRow[]): string[] => rows.map((row) => `${row.level}:${row.key}`);
+const all = filterIssues(index, "", [], "tree");
+const open = treeRows(index, all, () => true);
+assert.deepEqual(keys(open).slice(0, 3), ["1:proj-e", "2:proj-e.1", "3:proj-e.1.1"]);
+assert.equal(open.find((row) => row.key === "proj-e.1.1")?.parent, "proj-e.1");
+assert.equal(open.find((row) => row.key === "proj-g")?.expanded, null);
+const shut = treeRows(index, all, (id) => id !== "proj-e");
+assert.equal(shut.find((row) => row.key === "proj-e")?.expanded, false);
+assert.ok(!shut.some((row) => row.parent === "proj-e"));
+assert.equal(open.length, index.byId.size);
+
+// The status view: a group row, then its issues one level down.
+const grouped = statusRows(index, filterIssues(index, "", [], "status"), new Set(["open"]));
+assert.deepEqual(keys(grouped).slice(0, 4), ["1:group:in_progress", "2:proj-e.1.1", "1:group:blocked", "2:proj-b"]);
+assert.ok(grouped.some((row) => row.key === "group:open" && row.kind === "group" && !row.expanded && row.count === 4));
+assert.ok(!grouped.some((row) => row.parent === "group:open"));
+
+// Keys, per the WAI-ARIA tree pattern.
+const at = (key: string): number => open.findIndex((row) => row.key === key);
+assert.deepEqual(rowKeyAction(open, 0, "ArrowDown", false), { kind: "focus", at: 1 });
+assert.deepEqual(rowKeyAction(open, 0, "ArrowUp", false), { kind: "focus", at: 0 });
+assert.deepEqual(rowKeyAction(open, 2, "Home", false), { kind: "focus", at: 0 });
+assert.deepEqual(rowKeyAction(open, 0, "End", false), { kind: "focus", at: open.length - 1 });
+assert.deepEqual(rowKeyAction(open, at("proj-e"), "ArrowRight", false), { kind: "focus", at: at("proj-e.1") });
+assert.deepEqual(rowKeyAction(open, at("proj-e"), "ArrowLeft", false), { kind: "toggle", at: at("proj-e"), open: false });
+assert.deepEqual(rowKeyAction(open, at("proj-e"), "ArrowLeft", true), null);
+assert.deepEqual(rowKeyAction(open, at("proj-e.1.1"), "ArrowLeft", false), { kind: "focus", at: at("proj-e.1") });
+assert.deepEqual(rowKeyAction(open, at("proj-e.1"), "ArrowLeft", true), { kind: "focus", at: at("proj-e") });
+assert.equal(rowKeyAction(open, at("proj-g"), "ArrowRight", false), null);
+assert.deepEqual(rowKeyAction(shut, shut.findIndex((row) => row.key === "proj-e"), "ArrowRight", false), {
+  kind: "toggle",
+  at: shut.findIndex((row) => row.key === "proj-e"),
+  open: true,
+});
+assert.deepEqual(rowKeyAction(open, 0, "Enter", false), { kind: "activate", at: 0 });
+assert.deepEqual(rowKeyAction(grouped, 0, "Enter", false), { kind: "toggle", at: 0, open: false });
+assert.deepEqual(rowKeyAction(grouped, 1, "ArrowLeft", false), { kind: "focus", at: 0 });
+assert.equal(rowKeyAction(open, 0, "a", false), null);
 
 console.log("filter-check: ok");

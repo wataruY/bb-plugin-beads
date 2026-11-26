@@ -191,6 +191,119 @@ export function filterIssues(
 }
 
 // ---------------------------------------------------------------------------
+// List rows: both list views as one flat list in display order, a tree in
+// the WAI-ARIA sense (levels from 1). Keyboard navigation works on it.
+
+export type ListRow =
+  | {
+      kind: "group";
+      key: string;
+      level: 1;
+      parent: null;
+      status: Status;
+      count: number;
+      expanded: boolean;
+    }
+  | {
+      kind: "issue";
+      key: string;
+      level: number;
+      // The key of the row this one nests under.
+      parent: string | null;
+      issue: BdIssueNode;
+      // Null for a row with no children shown.
+      expanded: boolean | null;
+      // A context row: shown only because a descendant is.
+      dimmed: boolean;
+    };
+
+function shownIn(filter: IssueFilter, issues: BdIssueNode[]): BdIssueNode[] {
+  return issues.filter((issue) => filter.matches.has(issue.id) || filter.context.has(issue.id));
+}
+
+// The tree view's rows. `open` says whether a branch with shown children is
+// expanded.
+export function treeRows(index: IssueIndex, filter: IssueFilter, open: (id: string) => boolean): ListRow[] {
+  const rows: ListRow[] = [];
+  const walk = (issues: BdIssueNode[], level: number, parent: string | null): void => {
+    for (const issue of issues) {
+      const kids = shownIn(filter, index.children.get(issue.id) ?? []);
+      const expanded = kids.length === 0 ? null : open(issue.id);
+      rows.push({ kind: "issue", key: issue.id, level, parent, issue, expanded, dimmed: filter.context.has(issue.id) });
+      if (expanded === true) walk(kids, level + 1, issue.id);
+    }
+  };
+  walk(shownIn(filter, index.roots), 1, null);
+  return rows;
+}
+
+// Workflow-state groups, in display order: what is moving, what is stuck,
+// what can be picked up.
+export const GROUP_ORDER: readonly Status[] = ["in_progress", "blocked", "open", "deferred", "closed"];
+
+// The status view's rows: a group row per status with matches, its issues
+// under it. A hidden status has no matches, so its group has no row.
+export function statusRows(index: IssueIndex, filter: IssueFilter, collapsed: ReadonlySet<Status>): ListRow[] {
+  const members = new Map<Status, BdIssueNode[]>(GROUP_ORDER.map((status) => [status, []]));
+  for (const id of filter.matches) {
+    const issue = index.byId.get(id)!;
+    members.get(effectiveStatus(issue, index))!.push(issue);
+  }
+  const rows: ListRow[] = [];
+  for (const status of GROUP_ORDER) {
+    const issues = members.get(status)!.sort(compareIssues);
+    if (issues.length === 0) continue;
+    const key = `group:${status}`;
+    const expanded = !collapsed.has(status);
+    rows.push({ kind: "group", key, level: 1, parent: null, status, count: issues.length, expanded });
+    if (!expanded) continue;
+    for (const issue of issues) {
+      rows.push({ kind: "issue", key: issue.id, level: 2, parent: key, issue, expanded: null, dimmed: false });
+    }
+  }
+  return rows;
+}
+
+export type RowAction =
+  | { kind: "focus"; at: number }
+  | { kind: "toggle"; at: number; open: boolean }
+  | { kind: "activate"; at: number };
+
+// What a key does on the row at `at`, per the WAI-ARIA tree pattern. With
+// `locked`, branches cannot collapse (a search forces them open), so Left
+// and Right only move. Null: the key is not the tree's.
+export function rowKeyAction(rows: readonly ListRow[], at: number, key: string, locked: boolean): RowAction | null {
+  const row = rows[at];
+  if (row === undefined) return null;
+  switch (key) {
+    case "ArrowDown":
+      return { kind: "focus", at: Math.min(at + 1, rows.length - 1) };
+    case "ArrowUp":
+      return { kind: "focus", at: Math.max(at - 1, 0) };
+    case "Home":
+      return { kind: "focus", at: 0 };
+    case "End":
+      return { kind: "focus", at: rows.length - 1 };
+    case "ArrowRight":
+      if (row.expanded === false) return { kind: "toggle", at, open: true };
+      if (row.expanded === true && rows[at + 1]?.parent === row.key) return { kind: "focus", at: at + 1 };
+      return null;
+    case "ArrowLeft": {
+      if (row.expanded === true && !locked) return { kind: "toggle", at, open: false };
+      if (row.parent === null) return null;
+      let parent = at - 1;
+      while (parent >= 0 && rows[parent]!.key !== row.parent) parent -= 1;
+      return parent >= 0 ? { kind: "focus", at: parent } : null;
+    }
+    case "Enter":
+    case " ":
+      return row.kind === "group" ? { kind: "toggle", at, open: !row.expanded } : { kind: "activate", at };
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // View preferences
 
 export const DEFAULT_VIEW_PREFS: ViewPrefs = { hiddenStatuses: ["deferred", "closed"], showIds: false };
