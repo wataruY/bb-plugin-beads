@@ -39,7 +39,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type CSSProperties, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "./panel.css";
 import {
   DETAIL_MODES,
@@ -242,9 +242,10 @@ function CountPill({ children }: { children: React.ReactNode }) {
 // List rows
 
 // Touch sizing: `pointer-coarse:` follows the input device, not the viewport, so a
-// phone gets 44px targets and a mouse keeps the dense desktop rhythm.
+// phone gets 44px targets and a mouse keeps the dense desktop rhythm. The
+// height comes from ROW_REM.
 const ROW_BASE =
-  "relative mx-1.5 flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:mx-2 pointer-coarse:h-11 pointer-coarse:gap-2 pointer-coarse:pr-3 pointer-coarse:text-[13px]";
+  "absolute inset-x-0 mx-1.5 flex cursor-pointer items-center gap-1.5 rounded-md pr-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:mx-2 pointer-coarse:gap-2 pointer-coarse:pr-3 pointer-coarse:text-[13px]";
 
 // Safe-area aware bottom padding for scroll content on notched phones.
 const SCROLL_END = "pb-[max(1.5rem,env(safe-area-inset-bottom))]";
@@ -373,14 +374,33 @@ const GROUP_LABEL: Record<Status, string> = {
   closed: "Closed",
 };
 
+// Row heights in rem, by row kind, for fine and coarse pointers. The list
+// positions rows from these, so they are the rows' only height.
+const ROW_REM: Record<ListRow["kind"], { fine: number; coarse: number }> = {
+  issue: { fine: 1.75, coarse: 2.75 },
+  group: { fine: 1.875, coarse: 2.75 },
+};
+
+// Rows rendered beyond each edge of the visible part, in px.
+const OVERSCAN_PX = 320;
+
 type RowToggle = (row: ListRow, open: boolean) => void;
 
-function GroupRow({
+// Every row is absolutely positioned at its offset in the list.
+function rowStyle(top: number, height: number, paddingLeft?: string): CSSProperties {
+  return { top, height, paddingLeft };
+}
+
+const GroupRow = memo(function GroupRow({
   row,
+  top,
+  height,
   tabbable,
   onToggle,
 }: {
   row: Extract<ListRow, { kind: "group" }>;
+  top: number;
+  height: number;
   tabbable: boolean;
   onToggle: RowToggle;
 }) {
@@ -389,9 +409,12 @@ function GroupRow({
       role="treeitem"
       data-key={row.key}
       aria-level={row.level}
+      aria-posinset={row.position}
+      aria-setsize={row.siblings}
       aria-expanded={row.expanded}
       tabIndex={tabbable ? 0 : -1}
-      className="flex w-full cursor-pointer items-center gap-1.5 px-3 pb-1 pt-2.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:px-4 pointer-coarse:py-0"
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-1.5 px-3 pb-1 pt-2.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:px-4 pointer-coarse:py-0"
+      style={rowStyle(top, height)}
       onClick={() => onToggle(row, !row.expanded)}
     >
       {GROUP_LABEL[row.status]}
@@ -399,31 +422,44 @@ function GroupRow({
       {row.expanded ? null : <ChevronRight className="h-3 w-3" />}
     </div>
   );
-}
+});
 
-function IssueRow({
+const IssueRow = memo(function IssueRow({
   row,
+  top,
+  height,
   tree,
   tabbable,
+  selected,
   locked,
-  list,
+  index,
+  query,
+  showIds,
+  onSelect,
   onToggle,
 }: {
   row: Extract<ListRow, { kind: "issue" }>;
+  top: number;
+  height: number;
   // Tree rows indent and carry a chevron; status rows name their parent.
   tree: boolean;
   tabbable: boolean;
+  selected: boolean;
   locked: boolean;
-  list: ListProps;
+  index: IssueIndex;
+  query: string;
+  showIds: boolean;
+  onSelect: (id: string) => void;
   onToggle: RowToggle;
 }) {
   const { issue } = row;
-  const selected = list.selectedId === issue.id;
   return (
     <div
       role="treeitem"
       data-key={row.key}
       aria-level={row.level}
+      aria-posinset={row.position}
+      aria-setsize={row.siblings}
       aria-selected={selected}
       aria-expanded={row.expanded ?? undefined}
       tabIndex={tabbable ? 0 : -1}
@@ -433,8 +469,8 @@ function IssueRow({
         (selected ? " bg-surface-selected" : " hover:bg-surface-recessed") +
         (row.dimmed ? " opacity-75" : "")
       }
-      style={tree ? { paddingLeft: `calc(${row.level - 1} * var(--beads-indent, 16px) + 2px)` } : undefined}
-      onClick={() => list.onSelect(issue.id)}
+      style={rowStyle(top, height, tree ? `calc(${row.level - 1} * var(--beads-indent, 16px) + 2px)` : undefined)}
+      onClick={() => onSelect(issue.id)}
     >
       {tree &&
         (row.expanded !== null ? (
@@ -455,14 +491,36 @@ function IssueRow({
         ))}
       <IssueRowContent
         issue={issue}
-        index={list.index}
+        index={index}
         showParent={!tree}
-        showId={list.showIds}
-        query={list.query}
+        showId={showIds}
+        query={query}
         dimmed={row.dimmed}
       />
     </div>
   );
+});
+
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let at = element.parentElement; at !== null; at = at.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(at).overflowY)) return at;
+  }
+  return null;
+}
+
+// The visible part of the list, in px from its top.
+type Viewport = { top: number; height: number };
+
+// First index whose row ends below `y`; `ends` is ascending.
+function firstEndingBelow(ends: number[], y: number): number {
+  let low = 0;
+  let high = ends.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (ends[mid]! <= y) low = mid + 1;
+    else high = mid;
+  }
+  return low;
 }
 
 // Either view's rows under one role=tree with a roving tabindex: one row is
@@ -470,6 +528,11 @@ function IssueRow({
 // and the arrow keys move focus between rows. Focus moves without selecting,
 // since a selection opens the detail full height in drill mode; Enter
 // selects.
+//
+// Windowed: only the rows near the visible part of the scroll pane are in
+// the DOM, plus the tab-order row, so focus survives scrolling it away. bb's
+// panel lays out the whole subtree again on every DOM change in the page, so
+// the cost of every interaction grew with the row count.
 function RowList({
   label,
   tree,
@@ -486,7 +549,25 @@ function RowList({
   onToggle: RowToggle;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const coarse = useCoarsePointer();
+  const [remPx, setRemPx] = useState(16);
+  const [viewport, setViewport] = useState<Viewport>({ top: 0, height: window.innerHeight });
+  // A row the keyboard moved to, to focus once it is rendered.
+  const pending = useRef<string | null>(null);
   const position = useMemo(() => new Map(rows.map((row, at) => [row.key, at])), [rows]);
+  const { tops, ends } = useMemo(() => {
+    const tops: number[] = [];
+    const ends: number[] = [];
+    let y = 0;
+    for (const row of rows) {
+      tops.push(y);
+      y += ROW_REM[row.kind][coarse ? "coarse" : "fine"] * remPx;
+      ends.push(y);
+    }
+    return { tops, ends };
+  }, [rows, coarse, remPx]);
+  const total = ends[ends.length - 1] ?? 0;
+
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [seenSelected, setSeenSelected] = useState(list.selectedId);
   if (seenSelected !== list.selectedId) {
@@ -499,50 +580,111 @@ function RowList({
       : list.selectedId !== null && position.has(list.selectedId)
         ? list.selectedId
         : (rows[0]?.key ?? null);
+
+  useLayoutEffect(() => {
+    const list = ref.current;
+    const scroller = list === null ? null : scrollParent(list);
+    if (list === null || scroller === null) return;
+    const measure = (): void => {
+      const top = list.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      const next = { top: -top, height: scroller.clientHeight };
+      setViewport((current) => (current.top === next.top && current.height === next.height ? current : next));
+      setRemPx(parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    };
+    measure();
+    scroller.addEventListener("scroll", measure, { passive: true });
+    const resize = new ResizeObserver(measure);
+    resize.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", measure);
+      resize.disconnect();
+    };
+  }, []);
+
+  const rowElement = (key: string): HTMLElement | null | undefined =>
+    ref.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+  useLayoutEffect(() => {
+    const key = pending.current;
+    pending.current = null;
+    const element = key === null ? null : rowElement(key);
+    element?.focus({ preventScroll: true });
+    element?.scrollIntoView({ block: "nearest" });
+  });
+  // A selection made outside the list (a sub-issue in the detail) scrolls to
+  // its row. The selected row is the tab-order row, so it is rendered.
+  useLayoutEffect(() => {
+    if (list.selectedId !== null) rowElement(list.selectedId)?.scrollIntoView({ block: "nearest" });
+  }, [list.selectedId]);
+
+  const first = firstEndingBelow(ends, viewport.top - OVERSCAN_PX);
+  const last = firstEndingBelow(ends, viewport.top + viewport.height + OVERSCAN_PX);
+  const shown: number[] = [];
+  for (let at = first; at <= Math.min(last, rows.length - 1); at += 1) shown.push(at);
+  const pinned = tabKey === null ? undefined : position.get(tabKey);
+  if (pinned !== undefined && (pinned < first || pinned > last)) shown.push(pinned);
+
   const rowKey = (target: EventTarget): string | undefined =>
     target instanceof Element ? target.closest<HTMLElement>("[data-key]")?.dataset.key : undefined;
   return (
-    <div
-      ref={ref}
-      role="tree"
-      aria-label={label}
-      className="py-1 [--beads-indent:16px] pointer-coarse:[--beads-indent:14px]"
-      onFocus={(event) => {
-        const key = rowKey(event.target);
-        if (key !== undefined) setActiveKey(key);
-      }}
-      onKeyDown={(event) => {
-        if (event.altKey || event.ctrlKey || event.metaKey) return;
-        const key = rowKey(event.target);
-        const at = key !== undefined ? position.get(key) : undefined;
-        if (at === undefined) return;
-        const action = rowKeyAction(rows, at, event.key, locked);
-        if (action === null) return;
-        event.preventDefault();
-        const row = rows[action.at]!;
-        if (action.kind === "toggle") onToggle(row, action.open);
-        else if (action.kind === "activate") list.onSelect(row.key);
-        else {
-          setActiveKey(row.key);
-          ref.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(row.key)}"]`)?.focus();
-        }
-      }}
-    >
-      {rows.map((row) =>
-        row.kind === "group" ? (
-          <GroupRow key={row.key} row={row} tabbable={row.key === tabKey} onToggle={onToggle} />
-        ) : (
-          <IssueRow
-            key={row.key}
-            row={row}
-            tree={tree}
-            tabbable={row.key === tabKey}
-            locked={locked}
-            list={list}
-            onToggle={onToggle}
-          />
-        ),
-      )}
+    <div className="py-1">
+      <div
+        ref={ref}
+        role="tree"
+        aria-label={label}
+        className="relative [--beads-indent:16px] pointer-coarse:[--beads-indent:14px]"
+        style={{ height: total }}
+        onFocus={(event) => {
+          const key = rowKey(event.target);
+          if (key !== undefined) setActiveKey(key);
+        }}
+        onKeyDown={(event) => {
+          if (event.altKey || event.ctrlKey || event.metaKey) return;
+          const key = rowKey(event.target);
+          const at = key !== undefined ? position.get(key) : undefined;
+          if (at === undefined) return;
+          const action = rowKeyAction(rows, at, event.key, locked);
+          if (action === null) return;
+          event.preventDefault();
+          const row = rows[action.at]!;
+          if (action.kind === "toggle") onToggle(row, action.open);
+          else if (action.kind === "activate") list.onSelect(row.key);
+          else if (row.key !== key) {
+            pending.current = row.key;
+            setActiveKey(row.key);
+          }
+        }}
+      >
+        {shown.map((at) => {
+          const row = rows[at]!;
+          const height = ends[at]! - tops[at]!;
+          return row.kind === "group" ? (
+            <GroupRow
+              key={row.key}
+              row={row}
+              top={tops[at]!}
+              height={height}
+              tabbable={row.key === tabKey}
+              onToggle={onToggle}
+            />
+          ) : (
+            <IssueRow
+              key={row.key}
+              row={row}
+              top={tops[at]!}
+              height={height}
+              tree={tree}
+              tabbable={row.key === tabKey}
+              selected={row.key === list.selectedId}
+              locked={locked}
+              index={list.index}
+              query={list.query}
+              showIds={list.showIds}
+              onSelect={list.onSelect}
+              onToggle={onToggle}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -557,13 +699,18 @@ function IssueTree(list: ListProps) {
     () => treeRows(list.index, list.filter, locked ? () => true : (id) => !collapsed.has(id)),
     [list.index, list.filter, locked, collapsed],
   );
-  const onToggle: RowToggle = (row, open) => {
-    if (locked) return;
-    const next = new Set(collapsed);
-    if (open) next.delete(row.key);
-    else next.add(row.key);
-    setCollapsed(next);
-  };
+  const onToggle = useCallback<RowToggle>(
+    (row, open) => {
+      if (locked) return;
+      setCollapsed((current) => {
+        const next = new Set(current);
+        if (open) next.delete(row.key);
+        else next.add(row.key);
+        return next;
+      });
+    },
+    [locked],
+  );
   return <RowList label="Issues" tree rows={rows} locked={locked} list={list} onToggle={onToggle} />;
 }
 
@@ -571,13 +718,15 @@ function IssueTree(list: ListProps) {
 function GroupedList(list: ListProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<Status>>(new Set());
   const rows = useMemo(() => statusRows(list.index, list.filter, collapsed), [list.index, list.filter, collapsed]);
-  const onToggle: RowToggle = (row, open) => {
+  const onToggle = useCallback<RowToggle>((row, open) => {
     if (row.kind !== "group") return;
-    const next = new Set(collapsed);
-    if (open) next.delete(row.status);
-    else next.add(row.status);
-    setCollapsed(next);
-  };
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (open) next.delete(row.status);
+      else next.add(row.status);
+      return next;
+    });
+  }, []);
   return (
     <RowList label="Issues by status" tree={false} rows={rows} locked={false} list={list} onToggle={onToggle} />
   );

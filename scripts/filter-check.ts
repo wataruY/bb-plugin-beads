@@ -190,12 +190,20 @@ const shut = treeRows(index, all, (id) => id !== "proj-e");
 assert.equal(shut.find((row) => row.key === "proj-e")?.expanded, false);
 assert.ok(!shut.some((row) => row.parent === "proj-e"));
 assert.equal(open.length, index.byId.size);
+const place = (rows: ListRow[], key: string): string => {
+  const row = rows.find((candidate) => candidate.key === key)!;
+  return `${row.position}/${row.siblings}`;
+};
+assert.equal(place(open, "proj-e"), "1/6");
+assert.equal(place(open, "proj-e.1.1"), "1/1");
 
 // The status view: a group row, then its issues one level down.
 const grouped = statusRows(index, filterIssues(index, "", [], "status"), new Set(["open"]));
 assert.deepEqual(keys(grouped).slice(0, 4), ["1:group:in_progress", "2:proj-e.1.1", "1:group:blocked", "2:proj-b"]);
 assert.ok(grouped.some((row) => row.key === "group:open" && row.kind === "group" && !row.expanded && row.count === 4));
 assert.ok(!grouped.some((row) => row.parent === "group:open"));
+assert.equal(place(grouped, "group:blocked"), "2/4");
+assert.equal(place(grouped, "proj-e.1.1"), "1/1");
 
 // Keys, per the WAI-ARIA tree pattern.
 const at = (key: string): number => open.findIndex((row) => row.key === key);

@@ -194,19 +194,22 @@ export function filterIssues(
 // List rows: both list views as one flat list in display order, a tree in
 // the WAI-ARIA sense (levels from 1). Keyboard navigation works on it.
 
+// `position` and `siblings` place a row among its siblings (aria-posinset,
+// aria-setsize): a windowed list renders only some rows, so assistive tech
+// cannot count them.
+type RowPlace = { key: string; position: number; siblings: number };
+
 export type ListRow =
-  | {
+  | (RowPlace & {
       kind: "group";
-      key: string;
       level: 1;
       parent: null;
       status: Status;
       count: number;
       expanded: boolean;
-    }
-  | {
+    })
+  | (RowPlace & {
       kind: "issue";
-      key: string;
       level: number;
       // The key of the row this one nests under.
       parent: string | null;
@@ -215,7 +218,7 @@ export type ListRow =
       expanded: boolean | null;
       // A context row: shown only because a descendant is.
       dimmed: boolean;
-    };
+    });
 
 function shownIn(filter: IssueFilter, issues: BdIssueNode[]): BdIssueNode[] {
   return issues.filter((issue) => filter.matches.has(issue.id) || filter.context.has(issue.id));
@@ -226,10 +229,20 @@ function shownIn(filter: IssueFilter, issues: BdIssueNode[]): BdIssueNode[] {
 export function treeRows(index: IssueIndex, filter: IssueFilter, open: (id: string) => boolean): ListRow[] {
   const rows: ListRow[] = [];
   const walk = (issues: BdIssueNode[], level: number, parent: string | null): void => {
-    for (const issue of issues) {
+    for (const [at, issue] of issues.entries()) {
       const kids = shownIn(filter, index.children.get(issue.id) ?? []);
       const expanded = kids.length === 0 ? null : open(issue.id);
-      rows.push({ kind: "issue", key: issue.id, level, parent, issue, expanded, dimmed: filter.context.has(issue.id) });
+      rows.push({
+        kind: "issue",
+        key: issue.id,
+        position: at + 1,
+        siblings: issues.length,
+        level,
+        parent,
+        issue,
+        expanded,
+        dimmed: filter.context.has(issue.id),
+      });
       if (expanded === true) walk(kids, level + 1, issue.id);
     }
   };
@@ -249,16 +262,18 @@ export function statusRows(index: IssueIndex, filter: IssueFilter, collapsed: Re
     const issue = index.byId.get(id)!;
     members.get(effectiveStatus(issue, index))!.push(issue);
   }
+  const groups = GROUP_ORDER.filter((status) => members.get(status)!.length > 0);
   const rows: ListRow[] = [];
-  for (const status of GROUP_ORDER) {
+  for (const [at, status] of groups.entries()) {
     const issues = members.get(status)!.sort(compareIssues);
-    if (issues.length === 0) continue;
     const key = `group:${status}`;
     const expanded = !collapsed.has(status);
-    rows.push({ kind: "group", key, level: 1, parent: null, status, count: issues.length, expanded });
+    const place = { key, position: at + 1, siblings: groups.length };
+    rows.push({ ...place, kind: "group", level: 1, parent: null, status, count: issues.length, expanded });
     if (!expanded) continue;
-    for (const issue of issues) {
-      rows.push({ kind: "issue", key: issue.id, level: 2, parent: key, issue, expanded: null, dimmed: false });
+    for (const [i, issue] of issues.entries()) {
+      const place = { key: issue.id, position: i + 1, siblings: issues.length };
+      rows.push({ ...place, kind: "issue", level: 2, parent: key, issue, expanded: null, dimmed: false });
     }
   }
   return rows;
