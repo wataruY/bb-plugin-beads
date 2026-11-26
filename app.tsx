@@ -2591,7 +2591,23 @@ function BeadsPanel({ threadId }: { threadId: string }) {
     prefs.hiddenStatuses.join() !== DEFAULT_VIEW_PREFS.hiddenStatuses.join() ||
     prefs.showIds !== DEFAULT_VIEW_PREFS.showIds ||
     (!coarse && view.detailMode !== DEFAULT_VIEW.detailMode);
-  // A refetch can drop the selected issue (deleted, or another checkout).
+  // A refetch can drop the selected issue (deleted, or another checkout) or
+  // give it a status the list hides (closed elsewhere). In split mode the
+  // detail follows the list then. Full height shows no list to disagree with,
+  // so the detail stays and shows the new status. A hidden issue opened from
+  // the detail (a closed sub-issue) stays open, and so does one the search
+  // alone hides.
+  const [seenIndex, setSeenIndex] = useState(index);
+  if (seenIndex !== index) {
+    setSeenIndex(index);
+    const listed = (at: IssueIndex, id: string): boolean => {
+      const issue = at.byId.get(id);
+      return issue !== undefined && !prefs.hiddenStatuses.includes(effectiveStatus(issue, at));
+    };
+    if (!drill && selectedId !== null && listed(seenIndex, selectedId) && !listed(index, selectedId)) {
+      setSelectedId(null);
+    }
+  }
   const selected = selectedId !== null ? (index.byId.get(selectedId) ?? null) : null;
 
   // A failed RPC keeps the last loaded list (query.data) and reports the
