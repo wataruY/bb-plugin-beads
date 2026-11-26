@@ -784,6 +784,31 @@ function useMarkdownDocument(threadId: string, checkout: IssuesCheckout | null) 
 const PROSE_CLASS =
   "text-[13px] leading-relaxed [&_img]:max-h-40 [&_img]:max-w-full [&_img]:rounded";
 
+// bb's Markdown turns raw HTML into elements, and issue text comes from
+// agents and anyone else with bd. Every raw HTML form starts with `<` plus a
+// tag name, `/`, `!` or `?`; a word joiner (U+2060, zero-width) after that
+// `<` makes it plain text everywhere, code included. Autolinks, `a < b` and
+// `<dir/a b.png>` link targets do not match and keep their `<`.
+const HTML_START = /<(?=[!?]|\/[A-Za-z]|[A-Za-z][A-Za-z0-9-]*(?:[\s>]|\/>|$))/g;
+
+function Prose({
+  content,
+  className = PROSE_CLASS,
+  document,
+}: {
+  content: string;
+  className?: string;
+  document: ReturnType<typeof useMarkdownDocument>;
+}) {
+  return (
+    <Markdown
+      content={content.replace(HTML_START, "<\u2060")}
+      className={className}
+      experimental_document={document}
+    />
+  );
+}
+
 function IssueDetail({
   threadId,
   checkout,
@@ -953,11 +978,7 @@ function IssueDetail({
         <>
           <InfoSection label="Description">
             {show.description ? (
-              <Markdown
-                content={show.description}
-                className={PROSE_CLASS}
-                experimental_document={markdownDocument}
-              />
+              <Prose content={show.description} document={markdownDocument} />
             ) : (
               <p className="text-xs italic text-subtle-foreground">No description</p>
             )}
@@ -973,29 +994,21 @@ function IssueDetail({
                 ) : undefined
               }
             >
-              <Markdown
+              <Prose
                 content={acceptance}
-                experimental_document={markdownDocument}
+                document={markdownDocument}
                 className={PROSE_CLASS + " [&_li:has(>input[type=checkbox])]:list-none [&_ul:has(>li>input[type=checkbox])]:pl-0"}
               />
             </InfoSection>
           )}
           {show.design ? (
             <InfoSection label="Design">
-              <Markdown
-                content={show.design}
-                className={PROSE_CLASS}
-                experimental_document={markdownDocument}
-              />
+              <Prose content={show.design} document={markdownDocument} />
             </InfoSection>
           ) : null}
           {show.notes ? (
             <InfoSection label="Notes">
-              <Markdown
-                content={show.notes}
-                className={PROSE_CLASS}
-                experimental_document={markdownDocument}
-              />
+              <Prose content={show.notes} document={markdownDocument} />
             </InfoSection>
           ) : null}
         </>
@@ -1766,7 +1779,7 @@ function AttachmentTextarea({
           ))}
         </ul>
       )}
-      {images !== "" && <Markdown content={images} className={PROSE_CLASS} experimental_document={document} />}
+      {images !== "" && <Prose content={images} document={document} />}
     </div>
   );
 }
