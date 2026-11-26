@@ -615,6 +615,28 @@ function RowList({
   useLayoutEffect(() => {
     if (list.selectedId !== null) rowElement(list.selectedId)?.scrollIntoView({ block: "nearest" });
   }, [list.selectedId]);
+  // bb moves no focus when it opens or closes the side panel (Ctrl+J):
+  // closing makes the panel inert, which drops focus to the body. When the
+  // tab is shown again and nothing has focus, the tab-order row takes it.
+  // Focus anywhere else is the user's, and stays.
+  const visible = experimental_useTabVisible();
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    const shown = visible && !wasVisible.current;
+    wasVisible.current = visible;
+    if (!shown || tabKey === null) return;
+    let frame = 0;
+    // The panel can still be inert for a frame after the tab counts as shown.
+    const take = (tries: number): void => {
+      if (document.activeElement !== null && document.activeElement !== document.body) return;
+      const element = rowElement(tabKey);
+      element?.focus({ preventScroll: true });
+      if (document.activeElement === element) element?.scrollIntoView({ block: "nearest" });
+      else if (tries > 0) frame = requestAnimationFrame(() => take(tries - 1));
+    };
+    take(3);
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
 
   const first = firstEndingBelow(ends, viewport.top - OVERSCAN_PX);
   const last = firstEndingBelow(ends, viewport.top + viewport.height + OVERSCAN_PX);
